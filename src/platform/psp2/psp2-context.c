@@ -640,7 +640,7 @@ bool mPSP2SystemPoll(struct mGUIRunner* runner) {
 	if (sceAppMgrReceiveSystemEvent(&event) < 0) {
 		return true;
 	}
-	if (event.systemEvent == SCE_APPMGR_SYSTEMEVENT_ON_RESUME) {
+	if (event.systemEvent == SCE_APPMGR_SYSTEMEVENT_ON_RESUME && runner->core) {
 		mLOG(GUI_PSP2, INFO, "Suspend detected, reloading save");
 		mCoreAutoloadSave(runner->core);
 	}
