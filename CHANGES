@@ -83,6 +83,7 @@ Other fixes:
  - Vita: Fix vblank wait never being skipped when running behind
  - Vita: Fix memory leak in on-screen keyboard
  - Vita: Fix buffer overflow in on-screen keyboard
+ - Vita: Fix sized GUI icons being drawn at double size
 Misc:
  - 3DS: Change title ID to avoid conflict with commercial title (fixes mgba.io/i/3023)
  - Core: Handle relative paths for saves, screenshots, etc consistently (fixes mgba.io/i/2826)

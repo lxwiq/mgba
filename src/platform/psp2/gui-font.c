@@ -125,5 +125,5 @@ void GUIFontDrawIconSize(struct GUIFont* font, int x, int y, int w, int h, uint3
 	vita2d_draw_texture_tint_part_scale(font->icons, x, y,
 	                                    metric.x * 2, metric.y * 2,
 	                                    metric.width * 2, metric.height * 2,
-	                                    w ? (w / (float) metric.width) : 1, h ? (h / (float) metric.height) : 1, color);
+	                                    w ? (w / (2.0f * metric.width)) : 1, h ? (h / (2.0f * metric.height)) : 1, color);
 }
