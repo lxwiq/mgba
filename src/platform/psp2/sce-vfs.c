@@ -174,6 +174,16 @@ struct VDir* VDirOpen(const char* path) {
 	}
 
 	struct VDirSce* vd = malloc(sizeof(struct VDirSce));
+	if (!vd) {
+		sceIoDclose(dir);
+		return 0;
+	}
+	vd->path = strdup(path);
+	if (!vd->path) {
+		sceIoDclose(dir);
+		free(vd);
+		return 0;
+	}
 	vd->fd = dir;
 	vd->d.close = _vdsceClose;
 	vd->d.rewind = _vdsceRewind;
@@ -181,7 +191,6 @@ struct VDir* VDirOpen(const char* path) {
 	vd->d.openFile = _vdsceOpenFile;
 	vd->d.openDir = _vdsceOpenDir;
 	vd->d.deleteFile = _vdsceDeleteFile;
-	vd->path = strdup(path);
 
 	vd->de.d.name = _vdesceName;
 	vd->de.d.type = _vdesceType;
@@ -191,12 +200,13 @@ struct VDir* VDirOpen(const char* path) {
 
 bool _vdsceClose(struct VDir* vd) {
 	struct VDirSce* vdsce = (struct VDirSce*) vd;
-	if (sceIoDclose(vdsce->fd) < 0) {
-		return false;
+	bool success = true;
+	if (vdsce->fd >= 0) {
+		success = sceIoDclose(vdsce->fd) >= 0;
 	}
 	free(vdsce->path);
 	free(vdsce);
-	return true;
+	return success;
 }
 
 void _vdsceRewind(struct VDir* vd) {
