@@ -247,6 +247,9 @@ static void GUIMenuDraw(struct GUIParams* params, const struct GUIMenu* menu, co
 		const struct GUIMenuItem* item = GUIMenuItemListGetConstPointer(&menu->items, i);
 		if (i == menu->index) {
 			color = item->readonly ? 0xD0909090 : 0xFFFFFFFF;
+			if (params->drawRect) {
+				params->drawRect(0, y - lineHeight * 3 / 4, params->width, lineHeight, 0x40FFFFFF);
+			}
 			GUIFontDrawIcon(params->font, lineHeight * 0.8f, y, GUI_ALIGN_BOTTOM | GUI_ALIGN_RIGHT, GUI_ORIENT_0, color, GUI_ICON_POINTER);
 		}
 		GUIFontPrint(params->font, item->readonly ? lineHeight * 3 / 2 : lineHeight, y, GUI_ALIGN_LEFT, color, item->title);

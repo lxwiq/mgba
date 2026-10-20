@@ -85,6 +85,10 @@ static int _batteryState(void) {
 	return state | charge;
 }
 
+static void _drawRect(int x, int y, int w, int h, uint32_t color) {
+	vita2d_draw_rectangle(x, y, w, h, color);
+}
+
 static enum GUIKeyboardStatus _keyboardRun(struct GUIKeyboardParams* keyboard) {
 	// maxLen limits the number of characters, but the result also needs room for the terminator
 	size_t maxLen = keyboard->maxLen;
@@ -175,6 +179,7 @@ int main() {
 			_batteryState,
 			0, 0,
 			_keyboardRun,
+			.drawRect = _drawRect,
 		},
 		.configExtra = (struct GUIMenuItem[]) {
 			{
