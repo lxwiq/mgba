@@ -31,7 +31,7 @@ static void _drawStart(void) {
 	extern bool frameLimiter;
 	int oldVCount = vcount;
 	vcount = sceDisplayGetVcount();
-	vita2d_set_vblank_wait(frameLimiter && vcount + 1 >= oldVCount);
+	vita2d_set_vblank_wait(frameLimiter && oldVCount + 1 >= vcount);
 	vita2d_start_drawing();
 	vita2d_clear_screen();
 }
