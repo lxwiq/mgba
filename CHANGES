@@ -97,6 +97,7 @@ Other fixes:
  - Vita: Fix leaks when loading multiple games
  - Vita: Fix save, savestate, screenshot and cheat paths on devices such as ux0:
  - Util: Fix writing overlong strings to SFO files
+ - Vita: Fix RTC offset calculation on time conversion failure
 Misc:
  - 3DS: Change title ID to avoid conflict with commercial title (fixes mgba.io/i/3023)
  - Core: Handle relative paths for saves, screenshots, etc consistently (fixes mgba.io/i/2826)
