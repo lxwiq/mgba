@@ -109,26 +109,36 @@ void mPSP2MapKey(struct mInputMap* map, int pspKey, int key) {
 static THREAD_ENTRY _audioThread(void* context) {
 	struct mPSP2AudioContext* audio = (struct mPSP2AudioContext*) context;
 	const int16_t zeroBuffer[PSP2_SAMPLES * 2] __attribute__((__aligned__(64))) = {0};
-	const void* buffer = zeroBuffer;
 	int audioPort = sceAudioOutOpenPort(SCE_AUDIO_OUT_PORT_TYPE_MAIN, PSP2_SAMPLES, 48000, SCE_AUDIO_OUT_MODE_STEREO);
-	struct mPSP2AudioBuffer* outputBuffer = NULL;
+	if (audioPort < 0) {
+		mLOG(GUI_PSP2, ERROR, "Failed to open audio port: %08X", audioPort);
+		// Nothing will free the buffers, don't let the emulation thread wait for them
+		MutexLock(&audio->mutex);
+		audio->running = false;
+		ConditionWake(&audio->cond);
+		MutexUnlock(&audio->mutex);
+		THREAD_EXIT(0);
+	}
+	// sceAudioOutOutput returns once the previously submitted buffer has finished playing,
+	// but keeps playing the one it was just given: a buffer can only be released after the
+	// call following its submission has returned.
+	struct mPSP2AudioBuffer* playingBuffer = NULL;
+	struct mPSP2AudioBuffer* finishedBuffer = NULL;
 	while (audio->running) {
 		MutexLock(&audio->mutex);
-		if (outputBuffer) {
-			// Can only happen in successive iterations
-			outputBuffer->full = false;
+		if (finishedBuffer) {
+			finishedBuffer->full = false;
 			ConditionWake(&audio->cond);
 		}
-		outputBuffer = &audio->outputBuffers[audio->currentAudioBuffer];
-		if (outputBuffer->full) {
-			buffer = outputBuffer->samples;
+		finishedBuffer = playingBuffer;
+		playingBuffer = &audio->outputBuffers[audio->currentAudioBuffer];
+		if (playingBuffer->full) {
 			audio->currentAudioBuffer = (audio->currentAudioBuffer + 1) % BUFFERS;
 		} else {
-			buffer = zeroBuffer;
-			outputBuffer = NULL;
+			playingBuffer = NULL;
 		}
 		MutexUnlock(&audio->mutex);
-		sceAudioOutOutput(audioPort, buffer);
+		sceAudioOutOutput(audioPort, playingBuffer ? playingBuffer->samples : zeroBuffer);
 	}
 	sceAudioOutReleasePort(audioPort);
 	THREAD_EXIT(0);
@@ -265,7 +275,7 @@ static void _postAudioBuffer(struct mAVStream* stream, struct mAudioBuffer* buf)
 	while (mAudioBufferAvailable(&audioContext.buffer) >= PSP2_SAMPLES) {
 		struct mPSP2AudioBuffer* buffer = &audioContext.outputBuffers[audioContext.nextAudioBuffer];
 		while (buffer->full) {
-			if (!frameLimiter) {
+			if (!frameLimiter || !audioContext.running) {
 				break;
 			}
 			ConditionWait(&audioContext.cond, &audioContext.mutex);
@@ -424,6 +434,11 @@ void mPSP2LoadROM(struct mGUIRunner* runner) {
 	MutexInit(&audioContext.mutex);
 	ConditionInit(&audioContext.cond);
 	mAudioBufferClear(&audioContext.buffer);
+	// The last buffers played by the previous game's audio thread are still marked as full
+	size_t i;
+	for (i = 0; i < BUFFERS; ++i) {
+		audioContext.outputBuffers[i].full = false;
+	}
 	audioContext.nextAudioBuffer = 0;
 	audioContext.currentAudioBuffer = 0;
 	audioContext.running = true;
