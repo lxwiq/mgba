@@ -92,7 +92,9 @@ struct VFile* VFileOpenSce(const char* path, int flags, SceMode mode) {
 bool _vfsceClose(struct VFile* vf) {
 	struct VFileSce* vfsce = (struct VFileSce*) vf;
 	sceIoSyncByFd(vfsce->fd, 0);
-	return sceIoClose(vfsce->fd) >= 0;
+	bool success = sceIoClose(vfsce->fd) >= 0;
+	free(vfsce);
+	return success;
 }
 
 off_t _vfsceSeek(struct VFile* vf, off_t offset, int whence) {

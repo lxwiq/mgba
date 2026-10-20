@@ -74,6 +74,7 @@ Other fixes:
  - SDL: Use SDL_PumpEvents to ensure hotplug events are caught (fixes mgba.io/i/3406)
  - SDL: Fix controllers getting duplicated
  - SM83: Decode I/O-relative loads as ldh instead of ld (fixes mgba.io/i/3744)
+ - Vita: Fix memory leak when closing files
 Misc:
  - 3DS: Change title ID to avoid conflict with commercial title (fixes mgba.io/i/3023)
  - Core: Handle relative paths for saves, screenshots, etc consistently (fixes mgba.io/i/2826)
