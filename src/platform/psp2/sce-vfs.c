@@ -19,6 +19,7 @@ struct VFileSce {
 	struct VFile d;
 
 	SceUID fd;
+	bool writable;
 };
 
 struct VDirEntrySce {
@@ -74,6 +75,7 @@ struct VFile* VFileOpenSce(const char* path, int flags, SceMode mode) {
 		free(vfsce);
 		return 0;
 	}
+	vfsce->writable = false;
 
 	vfsce->d.close = _vfsceClose;
 	vfsce->d.seek = _vfsceSeek;
@@ -114,9 +116,11 @@ ssize_t _vfsceWrite(struct VFile* vf, const void* buffer, size_t size) {
 
 static void* _vfsceMap(struct VFile* vf, size_t size, int flags) {
 	struct VFileSce* vfsce = (struct VFileSce*) vf;
-	UNUSED(flags);
 	if (!size) {
 		return NULL;
+	}
+	if (flags & MAP_WRITE) {
+		vfsce->writable = true;
 	}
 	void* buffer = anonymousMemoryMap(size);
 	if (buffer) {
@@ -130,11 +134,13 @@ static void* _vfsceMap(struct VFile* vf, size_t size, int flags) {
 
 static void _vfsceUnmap(struct VFile* vf, void* memory, size_t size) {
 	struct VFileSce* vfsce = (struct VFileSce*) vf;
-	SceOff cur = sceIoLseek(vfsce->fd, 0, SEEK_CUR);
-	sceIoLseek(vfsce->fd, 0, SEEK_SET);
-	sceIoWrite(vfsce->fd, memory, size);
-	sceIoLseek(vfsce->fd, cur, SEEK_SET);
-	sceIoSyncByFd(vfsce->fd, 0);
+	if (vfsce->writable) {
+		SceOff cur = sceIoLseek(vfsce->fd, 0, SEEK_CUR);
+		sceIoLseek(vfsce->fd, 0, SEEK_SET);
+		sceIoWrite(vfsce->fd, memory, size);
+		sceIoLseek(vfsce->fd, cur, SEEK_SET);
+		sceIoSyncByFd(vfsce->fd, 0);
+	}
 	mappedMemoryFree(memory, size);
 }
 
