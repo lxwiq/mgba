@@ -164,6 +164,7 @@ Misc:
  - VFS: Fix loading 7-Zip files with Unicode filenames on Windows (fixes mbga.io/i/3823)
  - Vita: Skip rendering unseen frames while fast-forwarding
  - Vita: Raise audio thread priority
+ - Vita: Don't use CMake packages from the host when building
 
 0.10.5: (2025-03-08)
 Other fixes:
