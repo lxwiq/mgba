@@ -32,6 +32,7 @@
 #include <psp2/display.h>
 #include <psp2/gxm.h>
 #include <psp2/kernel/sysmem.h>
+#include <psp2/kernel/threadmgr.h>
 #include <psp2/motion.h>
 #include <psp2/touch.h>
 
@@ -119,6 +120,9 @@ void mPSP2MapKey(struct mInputMap* map, int pspKey, int key) {
 static THREAD_ENTRY _audioThread(void* context) {
 	struct mPSP2AudioContext* audio = (struct mPSP2AudioContext*) context;
 	const int16_t zeroBuffer[PSP2_SAMPLES * 2] __attribute__((__aligned__(64))) = {0};
+	// Handing the next buffer over takes little time but can't wait for the emulation
+	// threads to yield: run above them (a lower value means a higher priority)
+	sceKernelChangeThreadPriority(sceKernelGetThreadId(), sceKernelGetThreadCurrentPriority() - 16);
 	int audioPort = sceAudioOutOpenPort(SCE_AUDIO_OUT_PORT_TYPE_MAIN, PSP2_SAMPLES, 48000, SCE_AUDIO_OUT_MODE_STEREO);
 	if (audioPort < 0) {
 		mLOG(GUI_PSP2, ERROR, "Failed to open audio port: %08X", audioPort);
