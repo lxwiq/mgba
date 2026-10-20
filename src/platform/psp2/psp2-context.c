@@ -646,9 +646,17 @@ void mPSP2Draw(struct mGUIRunner* runner, bool faded) {
 void mPSP2DrawScreenshot(struct mGUIRunner* runner, const uint32_t* pixels, unsigned width, unsigned height, bool faded) {
 	UNUSED(runner);
 	uint32_t* texpixels = vita2d_texture_get_datap(screenshot);
+	unsigned texStride = vita2d_texture_get_stride(screenshot) / 4;
+	unsigned stride = width;
+	if (width > vita2d_texture_get_width(screenshot)) {
+		width = vita2d_texture_get_width(screenshot);
+	}
+	if (height > vita2d_texture_get_height(screenshot)) {
+		height = vita2d_texture_get_height(screenshot);
+	}
 	unsigned y;
 	for (y = 0; y < height; ++y) {
-		memcpy(&texpixels[256 * y], &pixels[width * y], width * 4);
+		memcpy(&texpixels[texStride * y], &pixels[stride * y], width * 4);
 	}
 	_drawTex(screenshot, width, height, faded, false);
 }
