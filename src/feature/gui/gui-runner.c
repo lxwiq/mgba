@@ -350,8 +350,20 @@ void mGUIRun(struct mGUIRunner* runner, const char* path) {
 		.image = 0,
 		.screenshotId = 0
 	};
+	// Name the game after its file, without the directory or extension
+	char gameName[128];
+	const char* name = strrchr(path, '/');
+	name = name ? name + 1 : path;
+	int nameLength = strlen(name);
+	const char* extension = strrchr(name, '.');
+	if (extension && extension != name) {
+		nameLength = extension - name;
+	}
+	snprintf(gameName, sizeof(gameName), "%.*s", nameLength, name);
+
 	struct GUIMenu pauseMenu = {
-		.title = "Game Paused",
+		.title = "Paused",
+		.subtitle = gameName,
 		.index = 0,
 		.background = &runner->background.d
 	};
@@ -368,7 +380,7 @@ void mGUIRun(struct mGUIRunner* runner, const char* path) {
 	GUIMenuItemListInit(&pauseMenu.items, 0);
 	GUIMenuItemListInit(&stateSaveMenu.items, 9);
 	GUIMenuItemListInit(&stateLoadMenu.items, 10);
-	*GUIMenuItemListAppend(&pauseMenu.items) = (struct GUIMenuItem) { .title = "Unpause", .data = GUI_V_U(RUNNER_CONTINUE) };
+	*GUIMenuItemListAppend(&pauseMenu.items) = (struct GUIMenuItem) { .title = "Resume", .data = GUI_V_U(RUNNER_CONTINUE) };
 	*GUIMenuItemListAppend(&pauseMenu.items) = (struct GUIMenuItem) { .title = "Save state", .submenu = &stateSaveMenu };
 	*GUIMenuItemListAppend(&pauseMenu.items) = (struct GUIMenuItem) { .title = "Load state", .submenu = &stateLoadMenu };
 
@@ -393,13 +405,13 @@ void mGUIRun(struct mGUIRunner* runner, const char* path) {
 	*GUIMenuItemListAppend(&stateLoadMenu.items) = (struct GUIMenuItem) { .title = "State 8", .data = GUI_V_U(RUNNER_LOAD_STATE | RUNNER_STATE(8)) };
 	*GUIMenuItemListAppend(&stateLoadMenu.items) = (struct GUIMenuItem) { .title = "State 9", .data = GUI_V_U(RUNNER_LOAD_STATE | RUNNER_STATE(9)) };
 
-	*GUIMenuItemListAppend(&pauseMenu.items) = (struct GUIMenuItem) { .title = "Take screenshot", .data = GUI_V_U(RUNNER_SCREENSHOT) };
+	*GUIMenuItemListAppend(&pauseMenu.items) = (struct GUIMenuItem) { .title = "Screenshot", .data = GUI_V_U(RUNNER_SCREENSHOT) };
 	if (runner->params.getText) {
 		*GUIMenuItemListAppend(&pauseMenu.items) = (struct GUIMenuItem) { .title = "Cheats", .data = GUI_V_U(RUNNER_CHEATS) };
 	}
 	*GUIMenuItemListAppend(&pauseMenu.items) = (struct GUIMenuItem) { .title = "Settings", .data = GUI_V_U(RUNNER_CONFIG) };
-	*GUIMenuItemListAppend(&pauseMenu.items) = (struct GUIMenuItem) { .title = "Reset game", .data = GUI_V_U(RUNNER_RESET) };
-	*GUIMenuItemListAppend(&pauseMenu.items) = (struct GUIMenuItem) { .title = "Exit game", .data = GUI_V_U(RUNNER_EXIT) };
+	*GUIMenuItemListAppend(&pauseMenu.items) = (struct GUIMenuItem) { .title = "Reset", .data = GUI_V_U(RUNNER_RESET) };
+	*GUIMenuItemListAppend(&pauseMenu.items) = (struct GUIMenuItem) { .title = "Quit game", .data = GUI_V_U(RUNNER_EXIT) };
 
 	runner->params.drawStart();
 	if (runner->params.guiPrepare) {

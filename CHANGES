@@ -172,6 +172,7 @@ Misc:
  - Vita: Highlight the selected menu item
  - Vita: Show button hints in menus
  - mGUI: Show arrows on adjustable menu values
+ - mGUI: Tidy up pause menu and show the game name
 
 0.10.5: (2025-03-08)
 Other fixes:
