@@ -95,6 +95,7 @@ static struct mPSP2AudioContext {
 	struct mPSP2AudioBuffer outputBuffers[BUFFERS];
 	int currentAudioBuffer;
 	int nextAudioBuffer;
+	int queuedBuffers;
 	struct mAudioBuffer buffer;
 	struct mAudioResampler resampler;
 	Mutex mutex;
@@ -131,11 +132,11 @@ static THREAD_ENTRY _audioThread(void* context) {
 			ConditionWake(&audio->cond);
 		}
 		finishedBuffer = playingBuffer;
-		playingBuffer = &audio->outputBuffers[audio->currentAudioBuffer];
-		if (playingBuffer->full) {
+		playingBuffer = NULL;
+		if (audio->queuedBuffers) {
+			playingBuffer = &audio->outputBuffers[audio->currentAudioBuffer];
 			audio->currentAudioBuffer = (audio->currentAudioBuffer + 1) % BUFFERS;
-		} else {
-			playingBuffer = NULL;
+			--audio->queuedBuffers;
 		}
 		MutexUnlock(&audio->mutex);
 		sceAudioOutOutput(audioPort, playingBuffer ? playingBuffer->samples : zeroBuffer);
@@ -286,6 +287,7 @@ static void _postAudioBuffer(struct mAVStream* stream, struct mAudioBuffer* buf)
 		mAudioBufferRead(&audioContext.buffer, buffer->samples, PSP2_SAMPLES);
 		buffer->full = true;
 		audioContext.nextAudioBuffer = (audioContext.nextAudioBuffer + 1) % BUFFERS;
+		++audioContext.queuedBuffers;
 	}
 	MutexUnlock(&audioContext.mutex);
 }
@@ -319,16 +321,17 @@ uint16_t mPSP2PollInput(struct mGUIRunner* runner) {
 }
 
 void mPSP2SetFrameLimiter(struct mGUIRunner* runner, bool limit) {
-	UNUSED(runner);
-	if (!frameLimiter && limit) {
+	if (!frameLimiter && limit && audioContext.running) {
+		// Flush the audio backed up while fast-forwarding instead of waiting for it to play
 		MutexLock(&audioContext.mutex);
-		while (true) {
-			struct mPSP2AudioBuffer* buffer = &audioContext.outputBuffers[audioContext.currentAudioBuffer];
-			if (!buffer->full) {
-				break;
-			}
-			ConditionWait(&audioContext.cond, &audioContext.mutex);
+		while (audioContext.queuedBuffers) {
+			// Unqueue from the end, leaving the buffers being played alone
+			audioContext.nextAudioBuffer = (audioContext.nextAudioBuffer + BUFFERS - 1) % BUFFERS;
+			audioContext.outputBuffers[audioContext.nextAudioBuffer].full = false;
+			--audioContext.queuedBuffers;
 		}
+		mAudioBufferClear(&audioContext.buffer);
+		mAudioBufferClear(runner->core->getAudioBuffer(runner->core));
 		MutexUnlock(&audioContext.mutex);
 	}
 	frameLimiter = limit;
@@ -444,6 +447,7 @@ void mPSP2LoadROM(struct mGUIRunner* runner) {
 	}
 	audioContext.nextAudioBuffer = 0;
 	audioContext.currentAudioBuffer = 0;
+	audioContext.queuedBuffers = 0;
 	audioContext.running = true;
 
 	float rate = 60.0f / 1.001f;
@@ -483,13 +487,12 @@ void mPSP2UnloadROM(struct mGUIRunner* runner) {
 }
 
 void mPSP2Paused(struct mGUIRunner* runner) {
-	UNUSED(runner);
 	struct SceCtrlActuator state = {
 		0,
 		0
 	};
 	sceCtrlSetActuator(1, &state);
-	frameLimiter = true;
+	mPSP2SetFrameLimiter(runner, true);
 }
 
 void mPSP2Unpaused(struct mGUIRunner* runner) {
