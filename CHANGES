@@ -86,6 +86,7 @@ Other fixes:
  - Vita: Fix sized GUI icons being drawn at double size
  - Vita: Fix crash when resuming with no game loaded
  - Vita: Fix interframe blending darkening the image in backdrop mode
+ - Vita: Fix freeing invalid camera buffer when unloading GB games
 Misc:
  - 3DS: Change title ID to avoid conflict with commercial title (fixes mgba.io/i/3023)
  - Core: Handle relative paths for saves, screenshots, etc consistently (fixes mgba.io/i/2826)

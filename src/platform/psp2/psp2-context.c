@@ -188,7 +188,16 @@ static void _startRequestImage(struct mImageSource* source, unsigned w, unsigned
 
 	if (!imageSource->buffer) {
 		imageSource->memblock = sceKernelAllocMemBlock("camera", SCE_KERNEL_MEMBLOCK_TYPE_USER_CDRAM_RW, CDRAM_ALIGN, NULL);
-		sceKernelGetMemBlockBase(imageSource->memblock, &imageSource->buffer);
+		if (imageSource->memblock < 0) {
+			mLOG(GUI_PSP2, ERROR, "Failed to allocate camera buffer: %08X", imageSource->memblock);
+			return;
+		}
+		if (sceKernelGetMemBlockBase(imageSource->memblock, &imageSource->buffer) < 0) {
+			sceKernelFreeMemBlock(imageSource->memblock);
+			imageSource->memblock = -1;
+			imageSource->buffer = NULL;
+			return;
+		}
 	}
 
 	if (!imageSource->cam) {
@@ -207,17 +216,27 @@ static void _startRequestImage(struct mImageSource* source, unsigned w, unsigned
 
 static void _stopRequestImage(struct mImageSource* source) {
 	struct mSceImageSource* imageSource = (struct mSceImageSource*) source;
+	if (!imageSource->buffer) {
+		// Not started, or already stopped
+		return;
+	}
 	if (imageSource->cam) {
 		sceCameraStop(imageSource->cam - 1);
 		sceCameraClose(imageSource->cam - 1);
 	}
 	sceKernelFreeMemBlock(imageSource->memblock);
+	imageSource->memblock = -1;
 	imageSource->buffer = NULL;
 }
 
 
 static void _requestImage(struct mImageSource* source, const void** buffer, size_t* stride, enum mColorFormat* colorFormat) {
 	struct mSceImageSource* imageSource = (struct mSceImageSource*) source;
+
+	if (!imageSource->buffer) {
+		*buffer = NULL;
+		return;
+	}
 
 	if (!imageSource->cam) {
 		memset(imageSource->buffer, 0, 176 * 144 * 4);
