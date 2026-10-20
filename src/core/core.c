@@ -371,15 +371,17 @@ void mCoreTakeScreenshot(struct mCore* core) {
 	if (vf) {
 		success = mCoreTakeScreenshotVF(core, vf);
 #ifdef PSP2
-		void* data = vf->map(vf, 0, 0);
-		PhotoExportParam param = {
-			0,
-			NULL,
-			NULL,
-			NULL,
-			{ 0 }
-		};
-		scePhotoExportFromData(data, vf->size(vf), &param, NULL, NULL, NULL, NULL, 0);
+		if (success) {
+			void* data = vf->map(vf, 0, 0);
+			PhotoExportParam param = {
+				0,
+				NULL,
+				NULL,
+				NULL,
+				{ 0 }
+			};
+			success = scePhotoExportFromData(data, vf->size(vf), &param, NULL, NULL, NULL, NULL, 0) >= 0;
+		}
 #endif
 		vf->close(vf);
 	}
