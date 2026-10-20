@@ -32,6 +32,7 @@
 #include <psp2/display.h>
 #include <psp2/gxm.h>
 #include <psp2/kernel/sysmem.h>
+#include <psp2/kernel/threadmgr.h>
 #include <psp2/motion.h>
 #include <psp2/touch.h>
 
@@ -85,6 +86,12 @@ static vita2d_texture* backdrop = 0;
 #define BUFFERS 16
 #define PSP2_SAMPLES 512
 #define PSP2_AUDIO_BUFFER_SIZE (PSP2_SAMPLES * BUFFERS)
+// Silence is played until this many buffers are queued, on start and after an underrun.
+// Audio arrives in chunks of ~1.5 buffers per emulated frame, at times jittering by up to
+// a frame, so 4 buffers (~43 ms) keep enough in reserve between chunks.
+#define PSP2_AUDIO_TARGET_BUFFERS 4
+// Maximum deviation from the nominal resampling rate used to keep the queue at that level
+#define PSP2_AUDIO_MAX_RATE_SKEW 0.005
 
 struct mPSP2AudioBuffer {
 	int16_t samples[PSP2_SAMPLES * 2] __attribute__((__aligned__(64)));
@@ -95,11 +102,15 @@ static struct mPSP2AudioContext {
 	struct mPSP2AudioBuffer outputBuffers[BUFFERS];
 	int currentAudioBuffer;
 	int nextAudioBuffer;
+	int queuedBuffers;
+	bool prefill;
+	double sampleRate;
 	struct mAudioBuffer buffer;
 	struct mAudioResampler resampler;
 	Mutex mutex;
 	Condition cond;
 	bool running;
+	bool threadStarted;
 } audioContext;
 
 void mPSP2MapKey(struct mInputMap* map, int pspKey, int key) {
@@ -109,26 +120,45 @@ void mPSP2MapKey(struct mInputMap* map, int pspKey, int key) {
 static THREAD_ENTRY _audioThread(void* context) {
 	struct mPSP2AudioContext* audio = (struct mPSP2AudioContext*) context;
 	const int16_t zeroBuffer[PSP2_SAMPLES * 2] __attribute__((__aligned__(64))) = {0};
-	const void* buffer = zeroBuffer;
+	// Handing the next buffer over takes little time but can't wait for the emulation
+	// threads to yield: run above them (a lower value means a higher priority)
+	sceKernelChangeThreadPriority(sceKernelGetThreadId(), sceKernelGetThreadCurrentPriority() - 16);
 	int audioPort = sceAudioOutOpenPort(SCE_AUDIO_OUT_PORT_TYPE_MAIN, PSP2_SAMPLES, 48000, SCE_AUDIO_OUT_MODE_STEREO);
-	struct mPSP2AudioBuffer* outputBuffer = NULL;
+	if (audioPort < 0) {
+		mLOG(GUI_PSP2, ERROR, "Failed to open audio port: %08X", audioPort);
+		// Nothing will free the buffers, don't let the emulation thread wait for them
+		MutexLock(&audio->mutex);
+		audio->running = false;
+		ConditionWake(&audio->cond);
+		MutexUnlock(&audio->mutex);
+		THREAD_EXIT(0);
+	}
+	// sceAudioOutOutput returns once the previously submitted buffer has finished playing,
+	// but keeps playing the one it was just given: a buffer can only be released after the
+	// call following its submission has returned.
+	struct mPSP2AudioBuffer* playingBuffer = NULL;
+	struct mPSP2AudioBuffer* finishedBuffer = NULL;
 	while (audio->running) {
 		MutexLock(&audio->mutex);
-		if (outputBuffer) {
-			// Can only happen in successive iterations
-			outputBuffer->full = false;
+		if (finishedBuffer) {
+			finishedBuffer->full = false;
 			ConditionWake(&audio->cond);
 		}
-		outputBuffer = &audio->outputBuffers[audio->currentAudioBuffer];
-		if (outputBuffer->full) {
-			buffer = outputBuffer->samples;
+		finishedBuffer = playingBuffer;
+		playingBuffer = NULL;
+		if (!audio->queuedBuffers) {
+			// Underrun: wait for a reserve to build up again instead of stuttering
+			audio->prefill = true;
+		} else if (audio->queuedBuffers >= PSP2_AUDIO_TARGET_BUFFERS) {
+			audio->prefill = false;
+		}
+		if (!audio->prefill) {
+			playingBuffer = &audio->outputBuffers[audio->currentAudioBuffer];
 			audio->currentAudioBuffer = (audio->currentAudioBuffer + 1) % BUFFERS;
-		} else {
-			buffer = zeroBuffer;
-			outputBuffer = NULL;
+			--audio->queuedBuffers;
 		}
 		MutexUnlock(&audio->mutex);
-		sceAudioOutOutput(audioPort, buffer);
+		sceAudioOutOutput(audioPort, playingBuffer ? playingBuffer->samples : zeroBuffer);
 	}
 	sceAudioOutReleasePort(audioPort);
 	THREAD_EXIT(0);
@@ -260,20 +290,34 @@ static void _requestImage(struct mImageSource* source, const void** buffer, size
 
 static void _postAudioBuffer(struct mAVStream* stream, struct mAudioBuffer* buf) {
 	UNUSED(stream);
+	UNUSED(buf);
 	MutexLock(&audioContext.mutex);
 	mAudioResamplerProcess(&audioContext.resampler);
 	while (mAudioBufferAvailable(&audioContext.buffer) >= PSP2_SAMPLES) {
 		struct mPSP2AudioBuffer* buffer = &audioContext.outputBuffers[audioContext.nextAudioBuffer];
-		while (buffer->full) {
-			if (!frameLimiter) {
-				break;
-			}
+		while (buffer->full && frameLimiter && audioContext.running) {
 			ConditionWait(&audioContext.cond, &audioContext.mutex);
+		}
+		if (buffer->full) {
+			// Fast-forwarding: drop what doesn't fit instead of overwriting queued or playing audio
+			mAudioBufferClear(&audioContext.buffer);
+			break;
 		}
 		mAudioBufferRead(&audioContext.buffer, buffer->samples, PSP2_SAMPLES);
 		buffer->full = true;
 		audioContext.nextAudioBuffer = (audioContext.nextAudioBuffer + 1) % BUFFERS;
+		++audioContext.queuedBuffers;
 	}
+
+	// Emulation is paced by the display but audio by its own clock, so the queue slowly drains
+	// or fills up. Nudge the resampling rate (by an inaudible 0.5% at most) to keep it on target.
+	double skew = (audioContext.queuedBuffers - PSP2_AUDIO_TARGET_BUFFERS) * PSP2_AUDIO_MAX_RATE_SKEW / PSP2_AUDIO_TARGET_BUFFERS;
+	if (skew > PSP2_AUDIO_MAX_RATE_SKEW) {
+		skew = PSP2_AUDIO_MAX_RATE_SKEW;
+	} else if (skew < -PSP2_AUDIO_MAX_RATE_SKEW) {
+		skew = -PSP2_AUDIO_MAX_RATE_SKEW;
+	}
+	mAudioResamplerSetSource(&audioContext.resampler, audioContext.resampler.source, audioContext.sampleRate * (1.0 + skew), true);
 	MutexUnlock(&audioContext.mutex);
 }
 
@@ -287,7 +331,8 @@ static void _audioRateChanged(struct mAVStream* stream, unsigned sampleRate) {
 	}
 	MutexLock(&audioContext.mutex);
 	mAudioResamplerProcess(&audioContext.resampler);
-	mAudioResamplerSetSource(&audioContext.resampler, audioContext.resampler.source, sampleRate / fpsRatio, true);
+	audioContext.sampleRate = sampleRate / fpsRatio;
+	mAudioResamplerSetSource(&audioContext.resampler, audioContext.resampler.source, audioContext.sampleRate, true);
 	MutexUnlock(&audioContext.mutex);
 }
 
@@ -305,17 +350,35 @@ uint16_t mPSP2PollInput(struct mGUIRunner* runner) {
 	return activeKeys;
 }
 
-void mPSP2SetFrameLimiter(struct mGUIRunner* runner, bool limit) {
-	UNUSED(runner);
-	if (!frameLimiter && limit) {
-		MutexLock(&audioContext.mutex);
-		while (true) {
-			struct mPSP2AudioBuffer* buffer = &audioContext.outputBuffers[audioContext.currentAudioBuffer];
-			if (!buffer->full) {
-				break;
-			}
-			ConditionWait(&audioContext.cond, &audioContext.mutex);
+static bool _prepareFrameskip(int* frameskipCounter) {
+	static int lastVcount = 0;
+	if (!frameLimiter) {
+		// Fast-forwarded frames come faster than the screen refreshes, so most would never be
+		// seen: only render the first frame of each refresh and skip the others like frameskip
+		int vcount = sceDisplayGetVcount();
+		if (vcount == lastVcount) {
+			*frameskipCounter = 1;
+		} else {
+			*frameskipCounter = 0;
+			lastVcount = vcount;
 		}
+	}
+	return *frameskipCounter <= 0;
+}
+
+void mPSP2SetFrameLimiter(struct mGUIRunner* runner, bool limit) {
+	if (!frameLimiter && limit && audioContext.running) {
+		// Flush the audio backed up while fast-forwarding instead of waiting for it to play
+		MutexLock(&audioContext.mutex);
+		while (audioContext.queuedBuffers) {
+			// Unqueue from the end, leaving the buffers being played alone
+			audioContext.nextAudioBuffer = (audioContext.nextAudioBuffer + BUFFERS - 1) % BUFFERS;
+			audioContext.outputBuffers[audioContext.nextAudioBuffer].full = false;
+			--audioContext.queuedBuffers;
+		}
+		audioContext.prefill = true;
+		mAudioBufferClear(&audioContext.buffer);
+		mAudioBufferClear(runner->core->getAudioBuffer(runner->core));
 		MutexUnlock(&audioContext.mutex);
 	}
 	frameLimiter = limit;
@@ -346,6 +409,15 @@ void mPSP2Setup(struct mGUIRunner* runner) {
 
 	unsigned width, height;
 	runner->core->baseVideoSize(runner->core, &width, &height);
+	if (tex[0]) {
+		// Setup runs for every game but teardown only on exit: free what the last game used
+		vita2d_wait_rendering_done();
+		vita2d_free_texture(tex[0]);
+		vita2d_free_texture(tex[1]);
+		vita2d_free_texture(screenshot);
+		mAudioResamplerDeinit(&audioContext.resampler);
+		mAudioBufferDeinit(&audioContext.buffer);
+	}
 	tex[0] = vita2d_create_empty_texture_format(256, toPow2(height), SCE_GXM_TEXTURE_FORMAT_X8U8U8U8_1BGR);
 	tex[1] = vita2d_create_empty_texture_format(256, toPow2(height), SCE_GXM_TEXTURE_FORMAT_X8U8U8U8_1BGR);
 	currentTex = 0;
@@ -386,7 +458,9 @@ void mPSP2Setup(struct mGUIRunner* runner) {
 	runner->core->setAVStream(runner->core, &stream);
 
 	frameLimiter = true;
-	backdrop = vita2d_load_PNG_buffer(_binary_backdrop_png_start);
+	if (!backdrop) {
+		backdrop = vita2d_load_PNG_buffer(_binary_backdrop_png_start);
+	}
 
 	unsigned mode;
 	if (mCoreConfigGetUIntValue(&runner->config, "screenMode", &mode) && mode < SM_MAX) {
@@ -424,8 +498,15 @@ void mPSP2LoadROM(struct mGUIRunner* runner) {
 	MutexInit(&audioContext.mutex);
 	ConditionInit(&audioContext.cond);
 	mAudioBufferClear(&audioContext.buffer);
+	// The last buffers played by the previous game's audio thread are still marked as full
+	size_t i;
+	for (i = 0; i < BUFFERS; ++i) {
+		audioContext.outputBuffers[i].full = false;
+	}
 	audioContext.nextAudioBuffer = 0;
 	audioContext.currentAudioBuffer = 0;
+	audioContext.queuedBuffers = 0;
+	audioContext.prefill = true;
 	audioContext.running = true;
 
 	float rate = 60.0f / 1.001f;
@@ -436,8 +517,13 @@ void mPSP2LoadROM(struct mGUIRunner* runner) {
 		sampleRate = 32768;
 	}
 	mAudioBufferClear(&audioContext.buffer);
-	mAudioResamplerSetSource(&audioContext.resampler, runner->core->getAudioBuffer(runner->core), sampleRate / fpsRatio, true);
-	ThreadCreate(&audioThread, _audioThread, &audioContext);
+	audioContext.sampleRate = sampleRate / fpsRatio;
+	mAudioResamplerSetSource(&audioContext.resampler, runner->core->getAudioBuffer(runner->core), audioContext.sampleRate, true);
+	audioContext.threadStarted = ThreadCreate(&audioThread, _audioThread, &audioContext) == 0;
+	if (!audioContext.threadStarted) {
+		mLOG(GUI_PSP2, ERROR, "Failed to start audio thread");
+		audioContext.running = false;
+	}
 }
 
 
@@ -461,17 +547,21 @@ void mPSP2UnloadROM(struct mGUIRunner* runner) {
 		break;
 	}
 	audioContext.running = false;
-	ThreadJoin(&audioThread);
+	if (audioContext.threadStarted) {
+		ThreadJoin(&audioThread);
+		audioContext.threadStarted = false;
+	}
+	ConditionDeinit(&audioContext.cond);
+	MutexDeinit(&audioContext.mutex);
 }
 
 void mPSP2Paused(struct mGUIRunner* runner) {
-	UNUSED(runner);
 	struct SceCtrlActuator state = {
 		0,
 		0
 	};
 	sceCtrlSetActuator(1, &state);
-	frameLimiter = true;
+	mPSP2SetFrameLimiter(runner, true);
 }
 
 void mPSP2Unpaused(struct mGUIRunner* runner) {
@@ -505,6 +595,11 @@ void mPSP2Teardown(struct mGUIRunner* runner) {
 	vita2d_free_texture(tex[0]);
 	vita2d_free_texture(tex[1]);
 	vita2d_free_texture(screenshot);
+	vita2d_free_texture(backdrop);
+	tex[0] = NULL;
+	tex[1] = NULL;
+	screenshot = NULL;
+	backdrop = NULL;
 	frameLimiter = true;
 }
 
@@ -617,12 +712,12 @@ void mPSP2Swap(struct mGUIRunner* runner) {
 	switch (runner->core->platform(runner->core)) {
 #ifdef M_CORE_GBA
 	case mPLATFORM_GBA:
-		frameAvailable = ((struct GBA*) runner->core->board)->video.frameskipCounter <= 0;
+		frameAvailable = _prepareFrameskip(&((struct GBA*) runner->core->board)->video.frameskipCounter);
 		break;
 #endif
 #ifdef M_CORE_GB
 	case mPLATFORM_GB:
-		frameAvailable = ((struct GB*) runner->core->board)->video.frameskipCounter <= 0;
+		frameAvailable = _prepareFrameskip(&((struct GB*) runner->core->board)->video.frameskipCounter);
 		break;
 #endif
 	default:

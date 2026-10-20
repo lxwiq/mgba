@@ -223,6 +223,13 @@ bool isAbsolute(const char* path) {
 	WCHAR wpath[PATH_MAX];
 	MultiByteToWideChar(CP_UTF8, 0, path, -1, wpath, PATH_MAX);
 	return !PathIsRelativeW(wpath);
+#elif defined(PSP2)
+	if (path[0] == '/') {
+		return true;
+	}
+	// Paths starting with a device name, e.g. ux0:data, are absolute
+	size_t prefix = strcspn(path, ":/");
+	return prefix > 0 && path[prefix] == ':';
 #else
 	return path[0] == '/';
 #endif

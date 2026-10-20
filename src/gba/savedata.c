@@ -688,23 +688,29 @@ void GBASavedataRTCRead(struct GBASavedata* savedata) {
 	date.microsecond = 0;
 
 	struct SceRtcTick tick;
+	SceUInt64 rtcTime64;
 	int res;
 	res = sceRtcConvertDateTimeToTick(&date, &tick);
 	if (res < 0) {
 		mLOG(GBA_SAVE, ERROR, "sceRtcConvertDateTimeToTick %lx", res);
+		return;
 	}
 	res = sceRtcConvertLocalTimeToUtc(&tick, &tick);
 	if (res < 0) {
-		mLOG(GBA_SAVE, ERROR, "sceRtcConvertUtcToLocalTime %lx", res);
+		mLOG(GBA_SAVE, ERROR, "sceRtcConvertLocalTimeToUtc %lx", res);
+		return;
 	}
 	res = sceRtcConvertTickToDateTime(&tick, &date);
 	if (res < 0) {
 		mLOG(GBA_SAVE, ERROR, "sceRtcConvertTickToDateTime %lx", res);
+		return;
 	}
-	res = sceRtcConvertDateTimeToTime_t(&date, &rtcTime);
+	res = sceRtcConvertDateTimeToTime64_t(&date, &rtcTime64);
 	if (res < 0) {
-		mLOG(GBA_SAVE, ERROR, "sceRtcConvertDateTimeToTime_t %lx", res);
+		mLOG(GBA_SAVE, ERROR, "sceRtcConvertDateTimeToTime64_t %lx", res);
+		return;
 	}
+	rtcTime = rtcTime64;
 #endif
 
 	savedata->p->memory.hw.rtc.offset = savedata->p->memory.hw.rtc.lastLatch - rtcTime;

@@ -89,6 +89,18 @@ Other fixes:
  - Vita: Fix freeing invalid camera buffer when unloading GB games
  - Vita: Fix off-center camera image when enabling camera while playing
  - Vita: Fix overflow when drawing oversized savestate screenshots
+ - Util: Fix cosine interpolator overshooting, causing audio crackling
+ - Vita: Fix audio buffers being overwritten while still playing
+ - Vita: Fix audio crackling when fast-forwarding
+ - Vita: Fix brief hang when fast-forward ends
+ - Vita: Fix audio gaps caused by buffer underruns
+ - Vita: Fix leaks when loading multiple games
+ - Vita: Fix save, savestate, screenshot and cheat paths on devices such as ux0:
+ - Util: Fix writing overlong strings to SFO files
+ - Vita: Fix RTC offset calculation on time conversion failure
+ - Vita: Don't report failed screenshots as saved
+ - mGUI: Fix potentially unterminated forwarder ROM path
+ - mGUI: Fix fast-forward, mute and screen mode toggles repeating while held
 Misc:
  - 3DS: Change title ID to avoid conflict with commercial title (fixes mgba.io/i/3023)
  - Core: Handle relative paths for saves, screenshots, etc consistently (fixes mgba.io/i/2826)
@@ -150,6 +162,12 @@ Misc:
  - Scripting: Add `callbacks:oneshot` for single-call callbacks
  - SDL: Differentiate controllers based on serial number (fixes mgba.io/i/880)
  - VFS: Fix loading 7-Zip files with Unicode filenames on Windows (fixes mbga.io/i/3823)
+ - Vita: Skip rendering unseen frames while fast-forwarding
+ - Vita: Raise audio thread priority
+ - Vita: Don't use CMake packages from the host when building
+ - Vita: Fix linking with recent libzip packages
+ - Vita: Fix building the perf tester
+ - Vita: Fix packaging failing depending on code size
 
 0.10.5: (2025-03-08)
 Other fixes:

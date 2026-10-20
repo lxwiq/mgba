@@ -512,6 +512,8 @@ void mGUIRun(struct mGUIRunner* runner, const char* path) {
 		runner->lastFpsCheck = 1000000LL * tv.tv_sec + tv.tv_usec;
 
 		int frame = 0;
+		// Keys still held when the game resumes need to be released before they can trigger toggles
+		uint32_t prevHeldKeys = 0xFFFFFFFF;
 		while (running) {
 			if (runner->running) {
 				running = runner->running(runner);
@@ -522,6 +524,9 @@ void mGUIRun(struct mGUIRunner* runner, const char* path) {
 			uint32_t guiKeys;
 			uint32_t heldKeys;
 			GUIPollInput(&runner->params, &guiKeys, &heldKeys);
+			// Unlike guiKeys, this doesn't include auto-repeat, so toggles don't flip while held
+			uint32_t pressedKeys = heldKeys & ~prevHeldKeys;
+			prevHeldKeys = heldKeys;
 			if (guiKeys & (1 << GUI_INPUT_CANCEL)) {
 				break;
 			}
@@ -535,19 +540,19 @@ void mGUIRun(struct mGUIRunner* runner, const char* path) {
 					--runner->luminanceSource.luxLevel;
 				}
 			}
-			if (guiKeys & (1 << mGUI_INPUT_SCREEN_MODE) && runner->incrementScreenMode) {
+			if (pressedKeys & (1 << mGUI_INPUT_SCREEN_MODE) && runner->incrementScreenMode) {
 				runner->incrementScreenMode(runner);
 			}
 			if (guiKeys & (1 << mGUI_INPUT_SCREENSHOT)) {
 				mCoreTakeScreenshot(runner->core);
 			}
-			bool muteTogglePressed = guiKeys & (1 << mGUI_INPUT_MUTE_TOGGLE);
+			bool muteTogglePressed = pressedKeys & (1 << mGUI_INPUT_MUTE_TOGGLE);
 			if (muteTogglePressed) {
 				mute = !mute;
 				mCoreConfigSetUIntValue(&runner->config, "mute", mute);
 				runner->core->reloadConfigOption(runner->core, "mute", &runner->config);
 			}
-			if (guiKeys & (1 << mGUI_INPUT_FAST_FORWARD_TOGGLE)) {
+			if (pressedKeys & (1 << mGUI_INPUT_FAST_FORWARD_TOGGLE)) {
 				fastForward = !fastForward;
 			}
 			bool fastForwarding = fastForward || (heldKeys & (1 << mGUI_INPUT_FAST_FORWARD_HELD));
@@ -805,7 +810,10 @@ bool mGUIGetRom(struct mGUIRunner* runner, char* out, size_t outLength) {
 		return false;
 	}
 	size_t len = strlen(out);
-	ssize_t size = read(fd, out + len, outLength - len);
+	ssize_t size = read(fd, out + len, outLength - len - 1);
+	if (size >= 0) {
+		out[len + size] = '\0';
+	}
 	if (size > 0 && out[len + size - 1] == '\n') {
 		out[len + size - 1] = '\0';
 	}

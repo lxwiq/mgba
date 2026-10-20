@@ -102,6 +102,73 @@ M_TEST_DEFINE(defaultSfo) {
 	vf->close(vf);
 }
 
+static const char* _findSfoEntry(const char* buffer, const char* key, uint32_t* valsize, uint32_t* totalsize) {
+	uint32_t keyofs;
+	uint32_t valofs;
+	uint32_t count;
+	LOAD_32LE(keyofs, 8, buffer);
+	LOAD_32LE(valofs, 12, buffer);
+	LOAD_32LE(count, 16, buffer);
+	uint32_t i;
+	for (i = 0; i < count; ++i) {
+		size_t entry = 20 + 16 * i;
+		uint16_t nameofs;
+		uint32_t dataofs;
+		LOAD_16LE(nameofs, entry, buffer);
+		if (strcmp(&buffer[keyofs + nameofs], key) != 0) {
+			continue;
+		}
+		LOAD_32LE(*valsize, entry + 4, buffer);
+		LOAD_32LE(*totalsize, entry + 8, buffer);
+		LOAD_32LE(dataofs, entry + 12, buffer);
+		return &buffer[valofs + dataofs];
+	}
+	return NULL;
+}
+
+M_TEST_DEFINE(longTitleSfo) {
+	// "a" followed by 50 three-byte UTF-8 characters, too long for both STITLE and TITLE
+	char title[1 + 50 * 3 + 1];
+	title[0] = 'a';
+	size_t i;
+	for (i = 0; i < 50; ++i) {
+		memcpy(&title[1 + i * 3], "\xE3\x81\x82", 3);
+	}
+	title[sizeof(title) - 1] = '\0';
+
+	struct VFile* vf = VFileMemChunk(NULL, 0);
+	struct Table sfo;
+	SfoInit(&sfo);
+	SfoSetTitle(&sfo, title);
+	SfoWrite(&sfo, vf);
+	SfoDeinit(&sfo);
+
+	size_t size = vf->size(vf);
+	const char* buffer = vf->map(vf, size, MAP_READ);
+	uint32_t valsize;
+	uint32_t totalsize;
+
+	// STITLE has 52 bytes: the last character that fits whole ends at byte 49
+	const char* data = _findSfoEntry(buffer, "STITLE", &valsize, &totalsize);
+	assert_non_null(data);
+	assert_int_equal(totalsize, 52);
+	assert_int_equal(valsize, 50);
+	assert_memory_equal(data, title, 49);
+	assert_int_equal(data[49], '\0');
+
+	// TITLE has 128 bytes: 127 bytes end exactly on a character boundary
+	data = _findSfoEntry(buffer, "TITLE", &valsize, &totalsize);
+	assert_non_null(data);
+	assert_int_equal(totalsize, 128);
+	assert_int_equal(valsize, 128);
+	assert_memory_equal(data, title, 127);
+	assert_int_equal(data[127], '\0');
+
+	vf->unmap(vf, (void*) buffer, size);
+	vf->close(vf);
+}
+
 M_TEST_SUITE_DEFINE(Sfo,
 	cmocka_unit_test(defaultSfo),
+	cmocka_unit_test(longTitleSfo),
 )
