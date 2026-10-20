@@ -336,7 +336,7 @@ static void _vdlsceRewind(struct VDir* vd) {
 
 static struct VDirEntry* _vdlsceListNext(struct VDir* vd) {
 	struct VDirSceDevList* vdl = (struct VDirSceDevList*) vd;
-	while (vdl->vde.index < 0 || _devs[vdl->vde.index]) {
+	while (_devs[vdl->vde.index + 1]) {
 		++vdl->vde.index;
 		vdl->vde.name = _devs[vdl->vde.index];
 		SceUID dir = sceIoDopen(vdl->vde.name);
