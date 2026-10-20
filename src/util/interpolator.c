@@ -90,15 +90,18 @@ void mInterpolatorCosineInit(struct mInterpolatorCosine* interp, unsigned resolu
 	}
 
 	interp->lut = calloc(resolution + 1, sizeof(double));
+	interp->resolution = resolution;
 
 	unsigned i;
-	for(i = 0; i < resolution; ++i) {
-		interp->lut[i] = (1.0 - cos(M_PI * i / resolution) * M_PI) * 0.5;
+	for (i = 0; i <= resolution; ++i) {
+		// Weight of the left sample: 1 at its position, falling to 0 at the right one
+		interp->lut[i] = (1.0 + cos(M_PI * i / resolution)) * 0.5;
 	}
 }
 
 void mInterpolatorCosineDeinit(struct mInterpolatorCosine* interp) {
 	free(interp->lut);
+	interp->lut = NULL;
 }
 
 int16_t mInterpolatorCosineInterpolate(const struct mInterpolator* interpolator, const struct mInterpolationData* data, double time, double sampleStep) {
