@@ -101,6 +101,8 @@ Other fixes:
  - Vita: Don't report failed screenshots as saved
  - mGUI: Fix potentially unterminated forwarder ROM path
  - mGUI: Fix fast-forward, mute and screen mode toggles repeating while held
+ - Vita: Fix fast-forward barely running faster than normal speed
+ - Vita: Reduce audio cuts when emulation briefly slows down
 Misc:
  - 3DS: Change title ID to avoid conflict with commercial title (fixes mgba.io/i/3023)
  - Core: Handle relative paths for saves, screenshots, etc consistently (fixes mgba.io/i/2826)
@@ -168,6 +170,11 @@ Misc:
  - Vita: Fix linking with recent libzip packages
  - Vita: Fix building the perf tester
  - Vita: Fix packaging failing depending on code size
+ - mGUI: Group settings into categories
+ - Vita: Highlight the selected menu item
+ - Vita: Show button hints in menus
+ - mGUI: Show arrows on adjustable menu values
+ - mGUI: Tidy up pause menu and show the game name
 
 0.10.5: (2025-03-08)
 Other fixes:

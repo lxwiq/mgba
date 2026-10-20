@@ -7,6 +7,8 @@
 #include <mgba-util/gui/font-metrics.h>
 #include <mgba-util/string.h>
 
+#include "psp2-context.h"
+
 #include <vita2d.h>
 
 #define CELL_HEIGHT 32
@@ -66,13 +68,17 @@ void GUIFontIconMetrics(const struct GUIFont* font, enum GUIIcon icon, unsigned*
 }
 
 void GUIFontDrawGlyph(struct GUIFont* font, int x, int y, uint32_t color, uint32_t glyph) {
+	if (!mPSP2IsFrameVisible()) {
+		// No scene was started for this frame, see mPSP2Swap
+		return;
+	}
 	char base[5] = { 0 };
 	toUtf8(glyph, base);
 	vita2d_pgf_draw_text(font->pgf, x, y, color, FONT_SIZE, base);
 }
 
 void GUIFontDrawIcon(struct GUIFont* font, int x, int y, enum GUIAlignment align, enum GUIOrientation orient, uint32_t color, enum GUIIcon icon) {
-	if (icon >= GUI_ICON_MAX) {
+	if (icon >= GUI_ICON_MAX || !mPSP2IsFrameVisible()) {
 		return;
 	}
 	struct GUIIconMetric metric = defaultIconMetrics[icon];
@@ -118,7 +124,7 @@ void GUIFontDrawIcon(struct GUIFont* font, int x, int y, enum GUIAlignment align
 }
 
 void GUIFontDrawIconSize(struct GUIFont* font, int x, int y, int w, int h, uint32_t color, enum GUIIcon icon) {
-	if (icon >= GUI_ICON_MAX) {
+	if (icon >= GUI_ICON_MAX || !mPSP2IsFrameVisible()) {
 		return;
 	}
 	struct GUIIconMetric metric = defaultIconMetrics[icon];

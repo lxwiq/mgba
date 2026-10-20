@@ -50,6 +50,34 @@ void _itemPrev(struct GUIMenuItem* item, bool wrap) {
 	}
 }
 
+static bool _itemHasPrev(const struct GUIMenuItem* item) {
+	unsigned i;
+	for (i = 0; i < item->state && i < item->nStates; ++i) {
+		if (item->validStates[i]) {
+			return true;
+		}
+	}
+	return false;
+}
+
+static bool _itemHasNext(const struct GUIMenuItem* item) {
+	unsigned i;
+	for (i = item->state + 1; i < item->nStates; ++i) {
+		if (item->validStates[i]) {
+			return true;
+		}
+	}
+	return false;
+}
+
+static unsigned _footerHeight(const struct GUIParams* params) {
+	// Button hints are only shown if the port can name the buttons
+	if (!params->inputLabel) {
+		return 0;
+	}
+	return GUIFontHeight(params->font);
+}
+
 void GUIMenuStateInit(struct GUIMenuState* state) {
 	state->start = 0;
 	state->cursorOverItem = 0;
@@ -108,7 +136,8 @@ enum GUIMenuExitReason GUIShowMenu(struct GUIParams* params, struct GUIMenu* men
 
 static enum GUIMenuExitReason GUIMenuPollInput(struct GUIParams* params, struct GUIMenu* menu, struct GUIMenuState* state) {
 	size_t lineHeight = GUIFontHeight(params->font);
-	size_t pageSize = params->height / lineHeight;
+	size_t height = params->height - _footerHeight(params);
+	size_t pageSize = height / lineHeight;
 	if (pageSize > 4) {
 		pageSize -= 4;
 	} else {
@@ -160,7 +189,7 @@ static enum GUIMenuExitReason GUIMenuPollInput(struct GUIParams* params, struct 
 		unsigned cy = state->cy;
 		if (cx < params->width - 16) {
 			int index = (cy / lineHeight) - 2;
-			if (index >= 0 && index + state->start < GUIMenuItemListSize(&menu->items)) {
+			if (index >= 0 && cy < height && index + state->start < GUIMenuItemListSize(&menu->items)) {
 				if (menu->index != index + state->start || !state->cursorOverItem) {
 					state->cursorOverItem = 1;
 				}
@@ -171,12 +200,12 @@ static enum GUIMenuExitReason GUIMenuPollInput(struct GUIParams* params, struct 
 		} else if (state->cursor == GUI_CURSOR_DOWN || state->cursor == GUI_CURSOR_DRAGGING) {
 			if (cy <= 2 * lineHeight && cy > lineHeight && menu->index > 0) {
 				--menu->index;
-			} else if (cy <= params->height && cy > params->height - lineHeight && menu->index < GUIMenuItemListSize(&menu->items) - 1) {
+			} else if (cy <= height && cy > height - lineHeight && menu->index < GUIMenuItemListSize(&menu->items) - 1) {
 				++menu->index;
-			} else if (cy <= params->height - lineHeight && cy > 2 * lineHeight) {
+			} else if (cy <= height - lineHeight && cy > 2 * lineHeight) {
 				size_t location = cy - 2 * lineHeight;
 				location *= GUIMenuItemListSize(&menu->items) - 1;
-				menu->index = location / (params->height - 3 * lineHeight);
+				menu->index = location / (height - 3 * lineHeight);
 			}
 		}
 	}
@@ -186,7 +215,7 @@ static enum GUIMenuExitReason GUIMenuPollInput(struct GUIParams* params, struct 
 		state->start = menu->index;
 	}
 	// Move the view down if the active item is after the bottom of the view
-	while ((menu->index - state->start + 4) * lineHeight > params->height) {
+	while ((menu->index - state->start + 4) * lineHeight > height) {
 		// TODO: Should this loop be replaced with division?
 		++state->start;
 	}
@@ -223,8 +252,53 @@ static enum GUIMenuExitReason GUIMenuPollInput(struct GUIParams* params, struct 
 	return GUI_MENU_CONTINUE;
 }
 
+static int _drawHint(struct GUIParams* params, int x, int y, const char* label, const char* action) {
+	char hint[64];
+	snprintf(hint, sizeof(hint), "%s %s", label, action);
+	GUIFontPrint(params->font, x, y, GUI_ALIGN_RIGHT, 0xC0FFFFFF, hint);
+	return x - GUIFontSpanWidth(params->font, hint) - GUIFontHeight(params->font);
+}
+
+static void GUIMenuDrawHints(struct GUIParams* params, const struct GUIMenu* menu, int x) {
+	const char* select = NULL;
+	bool change = false;
+	if (GUIMenuItemListSize(&menu->items)) {
+		const struct GUIMenuItem* item = GUIMenuItemListGetConstPointer(&menu->items, menu->index);
+		if (!item->readonly) {
+			if (item->submenu) {
+				select = "Open";
+			} else if (!item->validStates || !GUIVariantIsString(item->data)) {
+				// Selecting an item with named states just cycles through them, like left and right
+				select = "Select";
+			}
+			change = item->validStates != NULL;
+		}
+	}
+	size_t lineHeight = GUIFontHeight(params->font);
+	int y = params->height - lineHeight / 4;
+	if (params->drawRect) {
+		// Stop before the scrollbar, which reaches slightly lower
+		params->drawRect(0, params->height - lineHeight - 2, x, 1, 0x60FFFFFF);
+	}
+
+	// Hints are laid out from the right
+	const char* label = params->inputLabel(&params->keyMap, GUI_INPUT_BACK);
+	if (label) {
+		x = _drawHint(params, x, y, label, "Back");
+	}
+	if (change) {
+		// Left and right arrow icons
+		x = _drawHint(params, x, y, "\1\x11\1\x13", "Change");
+	}
+	label = params->inputLabel(&params->keyMap, GUI_INPUT_SELECT);
+	if (select && label) {
+		_drawHint(params, x, y, label, select);
+	}
+}
+
 static void GUIMenuDraw(struct GUIParams* params, const struct GUIMenu* menu, const struct GUIMenuState* state) {
 	size_t lineHeight = GUIFontHeight(params->font);
+	size_t height = params->height - _footerHeight(params);
 	params->drawStart();
 	if (menu->background) {
 		menu->background->draw(menu->background, GUIMenuItemListGetConstPointer(&menu->items, menu->index)->data.v.p);
@@ -240,28 +314,47 @@ static void GUIMenuDraw(struct GUIParams* params, const struct GUIMenu* menu, co
 	y += 2 * lineHeight;
 	unsigned right;
 	GUIFontIconMetrics(params->font, GUI_ICON_SCROLLBAR_BUTTON, &right, 0);
-	size_t itemsPerScreen = (params->height - y) / lineHeight;
+	size_t itemsPerScreen = (height - y) / lineHeight;
 	size_t i;
 	for (i = state->start; i < GUIMenuItemListSize(&menu->items); ++i) {
 		int color = 0xE0A0A0A0;
 		const struct GUIMenuItem* item = GUIMenuItemListGetConstPointer(&menu->items, i);
 		if (i == menu->index) {
 			color = item->readonly ? 0xD0909090 : 0xFFFFFFFF;
+			if (params->drawRect) {
+				params->drawRect(0, y - lineHeight * 3 / 4, params->width, lineHeight, 0x40FFFFFF);
+			}
 			GUIFontDrawIcon(params->font, lineHeight * 0.8f, y, GUI_ALIGN_BOTTOM | GUI_ALIGN_RIGHT, GUI_ORIENT_0, color, GUI_ICON_POINTER);
 		}
 		GUIFontPrint(params->font, item->readonly ? lineHeight * 3 / 2 : lineHeight, y, GUI_ALIGN_LEFT, color, item->title);
 		if (item->validStates && item->validStates[item->state]) {
-			GUIFontPrintf(params->font, params->width - right - 8, y, GUI_ALIGN_RIGHT, color, "%s ", item->validStates[item->state]);
+			const char* value = item->validStates[item->state];
+			int x = params->width - right - 8;
+			if (item->readonly) {
+				GUIFontPrintf(params->font, x, y, GUI_ALIGN_RIGHT, color, "%s ", value);
+			} else {
+				// Arrows show that left and right change the value, and are dimmed when it can't go further
+				int dimmed = (color & 0xFFFFFF) | 0x40000000;
+				GUIFontPrint(params->font, x, y, GUI_ALIGN_RIGHT, _itemHasNext(item) ? color : dimmed, "> ");
+				x -= GUIFontSpanWidth(params->font, "> ");
+				GUIFontPrintf(params->font, x, y, GUI_ALIGN_RIGHT, color, "%s ", value);
+				x -= GUIFontSpanWidth(params->font, value) + GUIFontGlyphWidth(params->font, ' ');
+				GUIFontPrint(params->font, x, y, GUI_ALIGN_RIGHT, _itemHasPrev(item) ? color : dimmed, "< ");
+			}
 		}
 		y += lineHeight;
-		if (y + lineHeight > params->height) {
+		if (y + lineHeight > height) {
 			break;
 		}
 	}
 
+	if (params->inputLabel) {
+		GUIMenuDrawHints(params, menu, params->width - right - 8);
+	}
+
 	if (itemsPerScreen < GUIMenuItemListSize(&menu->items)) {
 		size_t top = 2 * lineHeight;
-		size_t bottom = params->height - 8;
+		size_t bottom = height - 8;
 		unsigned w;
 		GUIFontIconMetrics(params->font, GUI_ICON_SCROLLBAR_TRACK, &w, 0);
 		right = (right - w) / 2;

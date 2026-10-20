@@ -26,7 +26,32 @@
 
 #include <vita2d.h>
 
+// Indexed by the bit of each button in SceCtrlData
+static const char* const _keyNames[] = {
+	"Select",
+	"L3",
+	"R3",
+	"Start",
+	"Up",
+	"Right",
+	"Down",
+	"Left",
+	"L2",
+	"R2",
+	"L1",
+	"R1",
+	"\1\xC",
+	"\1\xA",
+	"\1\xB",
+	"\1\xD"
+};
+
 static void _drawStart(void) {
+	if (!mPSP2IsFrameVisible()) {
+		// Fast-forwarded frame that won't be shown: leave vita2d alone until the next one is,
+		// so no scene, vertex pool space or display buffer is used for it
+		return;
+	}
 	static int vcount = 0;
 	extern bool frameLimiter;
 	int oldVCount = vcount;
@@ -37,6 +62,11 @@ static void _drawStart(void) {
 }
 
 static void _drawEnd(void) {
+	if (!mPSP2IsFrameVisible()) {
+		// Only that frame is hidden: whatever gets drawn next, e.g. a menu, has to be shown
+		mPSP2SetFrameVisible(true);
+		return;
+	}
 	vita2d_end_drawing();
 	vita2d_common_dialog_update();
 	vita2d_swap_buffers();
@@ -83,6 +113,19 @@ static int _batteryState(void) {
 		state |= BATTERY_CHARGING;
 	}
 	return state | charge;
+}
+
+static void _drawRect(int x, int y, int w, int h, uint32_t color) {
+	vita2d_draw_rectangle(x, y, w, h, color);
+}
+
+static const char* _inputLabel(const struct mInputMap* map, enum GUIInput input) {
+	// Confirm and back buttons depend on the system settings and can be remapped
+	int key = mInputQueryBinding(map, PSP2_INPUT, input);
+	if (key < 0 || (size_t) key >= sizeof(_keyNames) / sizeof(*_keyNames)) {
+		return NULL;
+	}
+	return _keyNames[key];
 }
 
 static enum GUIKeyboardStatus _keyboardRun(struct GUIKeyboardParams* keyboard) {
@@ -175,6 +218,8 @@ int main() {
 			_batteryState,
 			0, 0,
 			_keyboardRun,
+			.drawRect = _drawRect,
+			.inputLabel = _inputLabel,
 		},
 		.configExtra = (struct GUIMenuItem[]) {
 			{
@@ -218,25 +263,8 @@ int main() {
 			{
 				.name = "Vita Input",
 				.id = PSP2_INPUT,
-				.keyNames = (const char*[]) {
-					"Select",
-					"L3",
-					"R3",
-					"Start",
-					"Up",
-					"Right",
-					"Down",
-					"Left",
-					"L2",
-					"R2",
-					"L1",
-					"R1",
-					"\1\xC",
-					"\1\xA",
-					"\1\xB",
-					"\1\xD"
-				},
-				.nKeys = 16
+				.keyNames = _keyNames,
+				.nKeys = sizeof(_keyNames) / sizeof(*_keyNames)
 			},
 			{ .id = 0 }
 		},

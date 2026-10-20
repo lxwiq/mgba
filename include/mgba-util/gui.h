@@ -122,6 +122,11 @@ struct GUIParams {
 	// Directories
 	char currentPath[PATH_MAX];
 	size_t fileIndex;
+
+	// Optional, e.g. to highlight the selected menu item; colors are in the same format as for fonts
+	void (*drawRect)(int x, int y, int w, int h, uint32_t color);
+	// Optional, names the button bound to an input (icons allowed), to show button hints in menus
+	const char* (*inputLabel)(const struct mInputMap*, enum GUIInput);
 };
 
 void GUIInit(struct GUIParams* params);
