@@ -168,6 +168,7 @@ Misc:
  - Vita: Fix linking with recent libzip packages
  - Vita: Fix building the perf tester
  - Vita: Fix packaging failing depending on code size
+ - mGUI: Group settings into categories
 
 0.10.5: (2025-03-08)
 Other fixes:
