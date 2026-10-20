@@ -170,6 +170,7 @@ Misc:
  - Vita: Fix packaging failing depending on code size
  - mGUI: Group settings into categories
  - Vita: Highlight the selected menu item
+ - Vita: Show button hints in menus
 
 0.10.5: (2025-03-08)
 Other fixes:
