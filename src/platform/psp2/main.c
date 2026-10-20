@@ -47,6 +47,11 @@ static const char* const _keyNames[] = {
 };
 
 static void _drawStart(void) {
+	if (!mPSP2IsFrameVisible()) {
+		// Fast-forwarded frame that won't be shown: leave vita2d alone until the next one is,
+		// so no scene, vertex pool space or display buffer is used for it
+		return;
+	}
 	static int vcount = 0;
 	extern bool frameLimiter;
 	int oldVCount = vcount;
@@ -57,6 +62,11 @@ static void _drawStart(void) {
 }
 
 static void _drawEnd(void) {
+	if (!mPSP2IsFrameVisible()) {
+		// Only that frame is hidden: whatever gets drawn next, e.g. a menu, has to be shown
+		mPSP2SetFrameVisible(true);
+		return;
+	}
 	vita2d_end_drawing();
 	vita2d_common_dialog_update();
 	vita2d_swap_buffers();

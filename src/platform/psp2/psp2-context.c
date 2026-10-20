@@ -80,6 +80,13 @@ static struct mAVStream stream;
 
 bool frameLimiter = true;
 
+// Cleared by mPSP2Swap for fast-forwarded frames that won't be shown, so that nothing at all
+// gets drawn for them, and set again once such a frame is over (see mPSP2SetFrameVisible)
+static bool frameVisible = true;
+
+// Number of screen refreshes between the frames that are rendered and shown when fast-forwarding
+#define PSP2_FAST_FORWARD_REFRESHES 2
+
 extern const uint8_t _binary_backdrop_png_start[];
 static vita2d_texture* backdrop = 0;
 
@@ -354,9 +361,11 @@ static bool _prepareFrameskip(int* frameskipCounter) {
 	static int lastVcount = 0;
 	if (!frameLimiter) {
 		// Fast-forwarded frames come faster than the screen refreshes, so most would never be
-		// seen: only render the first frame of each refresh and skip the others like frameskip
+		// seen. Rendering and showing one takes most of a refresh, which left little time to
+		// emulate any other frame: only render one every few refreshes and skip the others
+		// like frameskip, along with everything else needed to show them
 		int vcount = sceDisplayGetVcount();
-		if (vcount == lastVcount) {
+		if (vcount - lastVcount < PSP2_FAST_FORWARD_REFRESHES) {
 			*frameskipCounter = 1;
 		} else {
 			*frameskipCounter = 0;
@@ -727,9 +736,23 @@ void mPSP2Swap(struct mGUIRunner* runner) {
 		currentTex = !currentTex;
 		runner->core->setVideoBuffer(runner->core, vita2d_texture_get_datap(tex[currentTex]), 256);
 	}
+	// When not fast-forwarding, frames are shown even if they weren't rendered (e.g. with the
+	// frameskip setting), as waiting for the screen to show them is what paces emulation
+	frameVisible = frameLimiter || frameAvailable;
+}
+
+bool mPSP2IsFrameVisible(void) {
+	return frameVisible;
+}
+
+void mPSP2SetFrameVisible(bool visible) {
+	frameVisible = visible;
 }
 
 void mPSP2Draw(struct mGUIRunner* runner, bool faded) {
+	if (!frameVisible) {
+		return;
+	}
 	unsigned width, height;
 	runner->core->currentVideoSize(runner->core, &width, &height);
 	if (interframeBlending) {
