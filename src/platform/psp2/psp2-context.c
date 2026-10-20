@@ -85,6 +85,12 @@ static vita2d_texture* backdrop = 0;
 #define BUFFERS 16
 #define PSP2_SAMPLES 512
 #define PSP2_AUDIO_BUFFER_SIZE (PSP2_SAMPLES * BUFFERS)
+// Silence is played until this many buffers are queued, on start and after an underrun.
+// Audio arrives in chunks of ~1.5 buffers per emulated frame, at times jittering by up to
+// a frame, so 4 buffers (~43 ms) keep enough in reserve between chunks.
+#define PSP2_AUDIO_TARGET_BUFFERS 4
+// Maximum deviation from the nominal resampling rate used to keep the queue at that level
+#define PSP2_AUDIO_MAX_RATE_SKEW 0.005
 
 struct mPSP2AudioBuffer {
 	int16_t samples[PSP2_SAMPLES * 2] __attribute__((__aligned__(64)));
@@ -96,6 +102,8 @@ static struct mPSP2AudioContext {
 	int currentAudioBuffer;
 	int nextAudioBuffer;
 	int queuedBuffers;
+	bool prefill;
+	double sampleRate;
 	struct mAudioBuffer buffer;
 	struct mAudioResampler resampler;
 	Mutex mutex;
@@ -133,7 +141,13 @@ static THREAD_ENTRY _audioThread(void* context) {
 		}
 		finishedBuffer = playingBuffer;
 		playingBuffer = NULL;
-		if (audio->queuedBuffers) {
+		if (!audio->queuedBuffers) {
+			// Underrun: wait for a reserve to build up again instead of stuttering
+			audio->prefill = true;
+		} else if (audio->queuedBuffers >= PSP2_AUDIO_TARGET_BUFFERS) {
+			audio->prefill = false;
+		}
+		if (!audio->prefill) {
 			playingBuffer = &audio->outputBuffers[audio->currentAudioBuffer];
 			audio->currentAudioBuffer = (audio->currentAudioBuffer + 1) % BUFFERS;
 			--audio->queuedBuffers;
@@ -289,6 +303,16 @@ static void _postAudioBuffer(struct mAVStream* stream, struct mAudioBuffer* buf)
 		audioContext.nextAudioBuffer = (audioContext.nextAudioBuffer + 1) % BUFFERS;
 		++audioContext.queuedBuffers;
 	}
+
+	// Emulation is paced by the display but audio by its own clock, so the queue slowly drains
+	// or fills up. Nudge the resampling rate (by an inaudible 0.5% at most) to keep it on target.
+	double skew = (audioContext.queuedBuffers - PSP2_AUDIO_TARGET_BUFFERS) * PSP2_AUDIO_MAX_RATE_SKEW / PSP2_AUDIO_TARGET_BUFFERS;
+	if (skew > PSP2_AUDIO_MAX_RATE_SKEW) {
+		skew = PSP2_AUDIO_MAX_RATE_SKEW;
+	} else if (skew < -PSP2_AUDIO_MAX_RATE_SKEW) {
+		skew = -PSP2_AUDIO_MAX_RATE_SKEW;
+	}
+	mAudioResamplerSetSource(&audioContext.resampler, audioContext.resampler.source, audioContext.sampleRate * (1.0 + skew), true);
 	MutexUnlock(&audioContext.mutex);
 }
 
@@ -302,7 +326,8 @@ static void _audioRateChanged(struct mAVStream* stream, unsigned sampleRate) {
 	}
 	MutexLock(&audioContext.mutex);
 	mAudioResamplerProcess(&audioContext.resampler);
-	mAudioResamplerSetSource(&audioContext.resampler, audioContext.resampler.source, sampleRate / fpsRatio, true);
+	audioContext.sampleRate = sampleRate / fpsRatio;
+	mAudioResamplerSetSource(&audioContext.resampler, audioContext.resampler.source, audioContext.sampleRate, true);
 	MutexUnlock(&audioContext.mutex);
 }
 
@@ -330,6 +355,7 @@ void mPSP2SetFrameLimiter(struct mGUIRunner* runner, bool limit) {
 			audioContext.outputBuffers[audioContext.nextAudioBuffer].full = false;
 			--audioContext.queuedBuffers;
 		}
+		audioContext.prefill = true;
 		mAudioBufferClear(&audioContext.buffer);
 		mAudioBufferClear(runner->core->getAudioBuffer(runner->core));
 		MutexUnlock(&audioContext.mutex);
@@ -448,6 +474,7 @@ void mPSP2LoadROM(struct mGUIRunner* runner) {
 	audioContext.nextAudioBuffer = 0;
 	audioContext.currentAudioBuffer = 0;
 	audioContext.queuedBuffers = 0;
+	audioContext.prefill = true;
 	audioContext.running = true;
 
 	float rate = 60.0f / 1.001f;
@@ -458,7 +485,8 @@ void mPSP2LoadROM(struct mGUIRunner* runner) {
 		sampleRate = 32768;
 	}
 	mAudioBufferClear(&audioContext.buffer);
-	mAudioResamplerSetSource(&audioContext.resampler, runner->core->getAudioBuffer(runner->core), sampleRate / fpsRatio, true);
+	audioContext.sampleRate = sampleRate / fpsRatio;
+	mAudioResamplerSetSource(&audioContext.resampler, runner->core->getAudioBuffer(runner->core), audioContext.sampleRate, true);
 	ThreadCreate(&audioThread, _audioThread, &audioContext);
 }
 
