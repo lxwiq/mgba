@@ -73,9 +73,22 @@ if(BUILD_PERF)
 	set_target_properties(perf-main.elf PROPERTIES COMPILE_DEFINITIONS "${OS_DEFINES};${FEATURE_DEFINES};${FUNCTION_DEFINES}")
 	target_link_libraries(perf-main.elf ${OS_LIB})
 
-	vita_create_self(perf.bin ../${BINARY_NAME}-perf)
+	# The vita.cmake macros leave their accumulated flags in this scope, so the
+	# perf targets would otherwise inherit the files and title ID of the main VPK
+	macro(reset_vita_flags)
+		unset(VITA_ELF_CREATE_FLAGS)
+		unset(VITA_MAKE_FSELF_FLAGS)
+		unset(VITA_MKSFOEX_FLAGS)
+		unset(VITA_PACK_VPK_FLAGS)
+	endmacro()
+
+	reset_vita_flags()
+	vita_create_self(perf.bin ${CMAKE_BINARY_DIR}/${BINARY_NAME}-perf)
+	add_dependencies(${BINARY_NAME}-perf-velf ${BINARY_NAME}-perf)
+	reset_vita_flags()
 	vita_create_self(perf-main.self perf-main.elf)
 
+	reset_vita_flags()
 	vita_create_vpk(${BINARY_NAME}-perf.vpk MGBA00002 perf-main.self
 	                NAME "${PROJECT_NAME} Perf Tester"
 	                FILE ${CMAKE_CURRENT_BINARY_DIR}/perf.bin perf.bin
@@ -84,7 +97,12 @@ if(BUILD_PERF)
 	                FILE ${CMAKE_CURRENT_SOURCE_DIR}/bg.png sce_sys/livearea/contents/bg.png
 	                FILE ${CMAKE_CURRENT_SOURCE_DIR}/startup.png sce_sys/livearea/contents/startup.png
 	                FILE ${CMAKE_CURRENT_BINARY_DIR}/template.xml sce_sys/livearea/contents/template.xml)
-	add_dependencies(${BINARY_NAME}-perf.vpk perf.bin)
+	if(TARGET ${BINARY_NAME}-perf.vpk-vpk)
+		# Newer versions of vita.cmake add suffixes to the target names
+		add_dependencies(${BINARY_NAME}-perf.vpk-vpk perf.bin-self)
+	else()
+		add_dependencies(${BINARY_NAME}-perf.vpk perf.bin)
+	endif()
 
 	install(FILES
 	        ${CMAKE_CURRENT_BINARY_DIR}/perf.bin
