@@ -200,12 +200,13 @@ static void _startRequestImage(struct mImageSource* source, unsigned w, unsigned
 		}
 	}
 
+	// Needed even without a camera, in case one gets selected later
+	imageSource->bufferOffset = (176 - w) / 2 + (144 - h) * 176 / 2;
 	if (!imageSource->cam) {
 		return;
 	}
 
 	_resetCamera(imageSource);
-	imageSource->bufferOffset = (176 - w) / 2 + (144 - h) * 176 / 2;
 
 	SceCameraRead read = {
 		sizeof(SceCameraRead),
