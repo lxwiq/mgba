@@ -86,6 +86,8 @@ static int _batteryState(void) {
 }
 
 static enum GUIKeyboardStatus _keyboardRun(struct GUIKeyboardParams* keyboard) {
+	SceWChar16* title = calloc(MAX_KEYBOARD_TITLE_LEN + 1, sizeof(SceWChar16));
+
 	SceImeDialogParam params;
 	sceImeDialogParamInit(&params);
 	params.supportedLanguages = 0x0001FFFF;
@@ -97,9 +99,9 @@ static enum GUIKeyboardStatus _keyboardRun(struct GUIKeyboardParams* keyboard) {
 	}
 	params.dialogMode = SCE_IME_DIALOG_DIALOG_MODE_WITH_CANCEL;
 	params.maxTextLength = keyboard->maxLen;
-	params.title = calloc(sizeof(SceWChar16), MAX_KEYBOARD_TITLE_LEN + 1);
-	params.inputTextBuffer = calloc(sizeof(SceWChar16), keyboard->maxLen + 1);
-	params.initialText = calloc(sizeof(SceWChar16), keyboard->maxLen + 1);
+	params.title = title;
+	params.inputTextBuffer = calloc(keyboard->maxLen + 1, sizeof(SceWChar16));
+	params.initialText = calloc(keyboard->maxLen + 1, sizeof(SceWChar16));
 
 	uint16_t* utf16Buffer = params.initialText;
 	char* utf8Buffer = keyboard->result;
@@ -109,7 +111,7 @@ static enum GUIKeyboardStatus _keyboardRun(struct GUIKeyboardParams* keyboard) {
 		utf16Buffer += toUtf16(unichar, utf16Buffer);
 	}
 
-	utf16Buffer = params.title;
+	utf16Buffer = title;
 	utf8Buffer = keyboard->title;
 	i = MAX_KEYBOARD_TITLE_LEN;
 	while (i > 0 && *utf8Buffer) {
@@ -149,6 +151,7 @@ static enum GUIKeyboardStatus _keyboardRun(struct GUIKeyboardParams* keyboard) {
 
 	free(params.initialText);
 	free(params.inputTextBuffer);
+	free(title);
 
 	return result.button == SCE_IME_DIALOG_BUTTON_ENTER ? GUI_KEYBOARD_DONE : GUI_KEYBOARD_CANCEL;
 }
