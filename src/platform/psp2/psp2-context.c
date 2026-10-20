@@ -517,7 +517,10 @@ void _drawTex(vita2d_texture* t, unsigned width, unsigned height, bool faded, bo
 	switch (screenMode) {
 	case SM_BACKDROP:
 	default:
-		vita2d_draw_texture_tint(backdrop, 0, 0, tint);
+		if (!interframe) {
+			// When blending, the backdrop was already drawn along with the previous frame
+			vita2d_draw_texture_tint(backdrop, 0, 0, tint);
+		}
 		// Fall through
 	case SM_PLAIN:
 		if (sgbCrop && width == 256 && height == 224) {
