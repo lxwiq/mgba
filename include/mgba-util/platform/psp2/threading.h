@@ -44,7 +44,7 @@ static inline int ConditionInit(Condition* cond) {
 	if (res < 0) {
 		return res;
 	}
-	cond->semaphore = sceKernelCreateSema("SceCondSema", 0, 0, 1, 0);
+	cond->semaphore = sceKernelCreateSema("SceCondSema", 0, 0, 0x7FFFFFFF, 0);
 	if (cond->semaphore < 0) {
 		MutexDeinit(&cond->mutex);
 		res = cond->semaphore;

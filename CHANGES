@@ -79,6 +79,7 @@ Other fixes:
  - Vita: Fix opening a null path when listing devices
  - Vita: Fix read-only mapped files being written back
  - Vita: Fix timed condition waits using the wrong units
+ - Vita: Fix lost condition wakes when multiple wakes are pending
 Misc:
  - 3DS: Change title ID to avoid conflict with commercial title (fixes mgba.io/i/3023)
  - Core: Handle relative paths for saves, screenshots, etc consistently (fixes mgba.io/i/2826)
