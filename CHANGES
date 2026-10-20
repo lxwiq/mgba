@@ -74,6 +74,21 @@ Other fixes:
  - SDL: Use SDL_PumpEvents to ensure hotplug events are caught (fixes mgba.io/i/3406)
  - SDL: Fix controllers getting duplicated
  - SM83: Decode I/O-relative loads as ldh instead of ld (fixes mgba.io/i/3744)
+ - Vita: Fix memory leak when closing files
+ - Vita: Fix directory handle leaks on error paths
+ - Vita: Fix opening a null path when listing devices
+ - Vita: Fix read-only mapped files being written back
+ - Vita: Fix timed condition waits using the wrong units
+ - Vita: Fix lost condition wakes when multiple wakes are pending
+ - Vita: Fix vblank wait never being skipped when running behind
+ - Vita: Fix memory leak in on-screen keyboard
+ - Vita: Fix buffer overflow in on-screen keyboard
+ - Vita: Fix sized GUI icons being drawn at double size
+ - Vita: Fix crash when resuming with no game loaded
+ - Vita: Fix interframe blending darkening the image in backdrop mode
+ - Vita: Fix freeing invalid camera buffer when unloading GB games
+ - Vita: Fix off-center camera image when enabling camera while playing
+ - Vita: Fix overflow when drawing oversized savestate screenshots
 Misc:
  - 3DS: Change title ID to avoid conflict with commercial title (fixes mgba.io/i/3023)
  - Core: Handle relative paths for saves, screenshots, etc consistently (fixes mgba.io/i/2826)

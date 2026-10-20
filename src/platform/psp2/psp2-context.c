@@ -188,15 +188,25 @@ static void _startRequestImage(struct mImageSource* source, unsigned w, unsigned
 
 	if (!imageSource->buffer) {
 		imageSource->memblock = sceKernelAllocMemBlock("camera", SCE_KERNEL_MEMBLOCK_TYPE_USER_CDRAM_RW, CDRAM_ALIGN, NULL);
-		sceKernelGetMemBlockBase(imageSource->memblock, &imageSource->buffer);
+		if (imageSource->memblock < 0) {
+			mLOG(GUI_PSP2, ERROR, "Failed to allocate camera buffer: %08X", imageSource->memblock);
+			return;
+		}
+		if (sceKernelGetMemBlockBase(imageSource->memblock, &imageSource->buffer) < 0) {
+			sceKernelFreeMemBlock(imageSource->memblock);
+			imageSource->memblock = -1;
+			imageSource->buffer = NULL;
+			return;
+		}
 	}
 
+	// Needed even without a camera, in case one gets selected later
+	imageSource->bufferOffset = (176 - w) / 2 + (144 - h) * 176 / 2;
 	if (!imageSource->cam) {
 		return;
 	}
 
 	_resetCamera(imageSource);
-	imageSource->bufferOffset = (176 - w) / 2 + (144 - h) * 176 / 2;
 
 	SceCameraRead read = {
 		sizeof(SceCameraRead),
@@ -207,17 +217,27 @@ static void _startRequestImage(struct mImageSource* source, unsigned w, unsigned
 
 static void _stopRequestImage(struct mImageSource* source) {
 	struct mSceImageSource* imageSource = (struct mSceImageSource*) source;
+	if (!imageSource->buffer) {
+		// Not started, or already stopped
+		return;
+	}
 	if (imageSource->cam) {
 		sceCameraStop(imageSource->cam - 1);
 		sceCameraClose(imageSource->cam - 1);
 	}
 	sceKernelFreeMemBlock(imageSource->memblock);
+	imageSource->memblock = -1;
 	imageSource->buffer = NULL;
 }
 
 
 static void _requestImage(struct mImageSource* source, const void** buffer, size_t* stride, enum mColorFormat* colorFormat) {
 	struct mSceImageSource* imageSource = (struct mSceImageSource*) source;
+
+	if (!imageSource->buffer) {
+		*buffer = NULL;
+		return;
+	}
 
 	if (!imageSource->cam) {
 		memset(imageSource->buffer, 0, 176 * 144 * 4);
@@ -517,7 +537,10 @@ void _drawTex(vita2d_texture* t, unsigned width, unsigned height, bool faded, bo
 	switch (screenMode) {
 	case SM_BACKDROP:
 	default:
-		vita2d_draw_texture_tint(backdrop, 0, 0, tint);
+		if (!interframe) {
+			// When blending, the backdrop was already drawn along with the previous frame
+			vita2d_draw_texture_tint(backdrop, 0, 0, tint);
+		}
 		// Fall through
 	case SM_PLAIN:
 		if (sgbCrop && width == 256 && height == 224) {
@@ -535,8 +558,8 @@ void _drawTex(vita2d_texture* t, unsigned width, unsigned height, bool faded, bo
 			h = height * h;
 		} else {
 			scalex = w;
-			w = width * w;
 			h = height * w;
+			w = width * w;
 		}
 		scaley = scalex;
 		break;
@@ -554,8 +577,8 @@ void _drawTex(vita2d_texture* t, unsigned width, unsigned height, bool faded, bo
 			w = aspectw * h;
 			h = aspecth * h;
 		} else {
-			w = aspectw * w;
 			h = aspecth * w;
+			w = aspectw * w;
 		}
 		scalex = w / (float) width;
 		scaley = scalex;
@@ -623,9 +646,17 @@ void mPSP2Draw(struct mGUIRunner* runner, bool faded) {
 void mPSP2DrawScreenshot(struct mGUIRunner* runner, const uint32_t* pixels, unsigned width, unsigned height, bool faded) {
 	UNUSED(runner);
 	uint32_t* texpixels = vita2d_texture_get_datap(screenshot);
+	unsigned texStride = vita2d_texture_get_stride(screenshot) / 4;
+	unsigned stride = width;
+	if (width > vita2d_texture_get_width(screenshot)) {
+		width = vita2d_texture_get_width(screenshot);
+	}
+	if (height > vita2d_texture_get_height(screenshot)) {
+		height = vita2d_texture_get_height(screenshot);
+	}
 	unsigned y;
 	for (y = 0; y < height; ++y) {
-		memcpy(&texpixels[256 * y], &pixels[width * y], width * 4);
+		memcpy(&texpixels[texStride * y], &pixels[stride * y], width * 4);
 	}
 	_drawTex(screenshot, width, height, faded, false);
 }
@@ -640,7 +671,7 @@ bool mPSP2SystemPoll(struct mGUIRunner* runner) {
 	if (sceAppMgrReceiveSystemEvent(&event) < 0) {
 		return true;
 	}
-	if (event.systemEvent == SCE_APPMGR_SYSTEMEVENT_ON_RESUME) {
+	if (event.systemEvent == SCE_APPMGR_SYSTEMEVENT_ON_RESUME && runner->core) {
 		mLOG(GUI_PSP2, INFO, "Suspend detected, reloading save");
 		mCoreAutoloadSave(runner->core);
 	}
@@ -648,16 +679,24 @@ bool mPSP2SystemPoll(struct mGUIRunner* runner) {
 }
 
 int mPSP2ReadTouchLR(const struct mInputMap* map) {
-	SceTouchData touch[4];
+	SceTouchData touch;
 	int activeKeys = 0;
-	int touches = sceTouchPeek(SCE_TOUCH_PORT_BACK, touch, 4);
-	int i;
-	for (i = 0; i < touches; ++i) {
-		if (touch[i].reportNum < 1) {
-			continue;
-		}
-		bool left = touch[i].report[0].x < (panelInfo[SCE_TOUCH_PORT_BACK].maxAaX - panelInfo[SCE_TOUCH_PORT_BACK].minAaX) / 2;
-		bool top = touch[i].report[0].y < (panelInfo[SCE_TOUCH_PORT_BACK].maxAaY - panelInfo[SCE_TOUCH_PORT_BACK].minAaY) / 2;
+	if (sceTouchPeek(SCE_TOUCH_PORT_BACK, &touch, 1) < 1 || !touch.reportNum) {
+		return 0;
+	}
+	SceTouchPanelInfo* info = &panelInfo[SCE_TOUCH_PORT_BACK];
+	if (!info->maxAaX) {
+		// Not fetched yet if no game has been loaded, e.g. in the file browser
+		sceTouchGetPanelInfo(SCE_TOUCH_PORT_BACK, info);
+	}
+	unsigned reports = touch.reportNum;
+	if (reports > SCE_TOUCH_MAX_REPORT) {
+		reports = SCE_TOUCH_MAX_REPORT;
+	}
+	unsigned i;
+	for (i = 0; i < reports; ++i) {
+		bool left = touch.report[i].x < (info->minAaX + info->maxAaX) / 2;
+		bool top = touch.report[i].y < (info->minAaY + info->maxAaY) / 2;
 		int button;
 		if (left) {
 			if (top) {

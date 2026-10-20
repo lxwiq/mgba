@@ -31,7 +31,7 @@ static void _drawStart(void) {
 	extern bool frameLimiter;
 	int oldVCount = vcount;
 	vcount = sceDisplayGetVcount();
-	vita2d_set_vblank_wait(frameLimiter && vcount + 1 >= oldVCount);
+	vita2d_set_vblank_wait(frameLimiter && oldVCount + 1 >= vcount);
 	vita2d_start_drawing();
 	vita2d_clear_screen();
 }
@@ -86,6 +86,13 @@ static int _batteryState(void) {
 }
 
 static enum GUIKeyboardStatus _keyboardRun(struct GUIKeyboardParams* keyboard) {
+	// maxLen limits the number of characters, but the result also needs room for the terminator
+	size_t maxLen = keyboard->maxLen;
+	if (maxLen > sizeof(keyboard->result) - 1) {
+		maxLen = sizeof(keyboard->result) - 1;
+	}
+	SceWChar16* title = calloc(MAX_KEYBOARD_TITLE_LEN + 1, sizeof(SceWChar16));
+
 	SceImeDialogParam params;
 	sceImeDialogParamInit(&params);
 	params.supportedLanguages = 0x0001FFFF;
@@ -96,20 +103,20 @@ static enum GUIKeyboardStatus _keyboardRun(struct GUIKeyboardParams* keyboard) {
 		params.option = SCE_IME_OPTION_MULTILINE;
 	}
 	params.dialogMode = SCE_IME_DIALOG_DIALOG_MODE_WITH_CANCEL;
-	params.maxTextLength = keyboard->maxLen;
-	params.title = calloc(sizeof(SceWChar16), MAX_KEYBOARD_TITLE_LEN + 1);
-	params.inputTextBuffer = calloc(sizeof(SceWChar16), keyboard->maxLen + 1);
-	params.initialText = calloc(sizeof(SceWChar16), keyboard->maxLen + 1);
+	params.maxTextLength = maxLen;
+	params.title = title;
+	params.inputTextBuffer = calloc(maxLen + 1, sizeof(SceWChar16));
+	params.initialText = calloc(maxLen + 1, sizeof(SceWChar16));
 
 	uint16_t* utf16Buffer = params.initialText;
 	char* utf8Buffer = keyboard->result;
-	size_t i = keyboard->maxLen;
+	size_t i = maxLen;
 	while (i > 0 && *utf8Buffer) {
 		uint32_t unichar = utf8Char((const char**) &utf8Buffer, &i);
 		utf16Buffer += toUtf16(unichar, utf16Buffer);
 	}
 
-	utf16Buffer = params.title;
+	utf16Buffer = title;
 	utf8Buffer = keyboard->title;
 	i = MAX_KEYBOARD_TITLE_LEN;
 	while (i > 0 && *utf8Buffer) {
@@ -132,8 +139,8 @@ static enum GUIKeyboardStatus _keyboardRun(struct GUIKeyboardParams* keyboard) {
 
 	utf16Buffer = params.inputTextBuffer;
 	utf8Buffer = keyboard->result;
-	i = keyboard->maxLen;
-	size_t bufferSize = sizeof(SceWChar16) * keyboard->maxLen;
+	i = maxLen;
+	size_t bufferSize = sizeof(SceWChar16) * maxLen;
 	while (bufferSize && *utf16Buffer) {
 		char buffer[4];
 		uint32_t unichar = utf16Char((const uint16_t**) &utf16Buffer, &bufferSize);
@@ -149,6 +156,7 @@ static enum GUIKeyboardStatus _keyboardRun(struct GUIKeyboardParams* keyboard) {
 
 	free(params.initialText);
 	free(params.inputTextBuffer);
+	free(title);
 
 	return result.button == SCE_IME_DIALOG_BUTTON_ENTER ? GUI_KEYBOARD_DONE : GUI_KEYBOARD_CANCEL;
 }

@@ -19,6 +19,7 @@ struct VFileSce {
 	struct VFile d;
 
 	SceUID fd;
+	bool writable;
 };
 
 struct VDirEntrySce {
@@ -74,6 +75,7 @@ struct VFile* VFileOpenSce(const char* path, int flags, SceMode mode) {
 		free(vfsce);
 		return 0;
 	}
+	vfsce->writable = false;
 
 	vfsce->d.close = _vfsceClose;
 	vfsce->d.seek = _vfsceSeek;
@@ -92,7 +94,9 @@ struct VFile* VFileOpenSce(const char* path, int flags, SceMode mode) {
 bool _vfsceClose(struct VFile* vf) {
 	struct VFileSce* vfsce = (struct VFileSce*) vf;
 	sceIoSyncByFd(vfsce->fd, 0);
-	return sceIoClose(vfsce->fd) >= 0;
+	bool success = sceIoClose(vfsce->fd) >= 0;
+	free(vfsce);
+	return success;
 }
 
 off_t _vfsceSeek(struct VFile* vf, off_t offset, int whence) {
@@ -112,9 +116,11 @@ ssize_t _vfsceWrite(struct VFile* vf, const void* buffer, size_t size) {
 
 static void* _vfsceMap(struct VFile* vf, size_t size, int flags) {
 	struct VFileSce* vfsce = (struct VFileSce*) vf;
-	UNUSED(flags);
 	if (!size) {
 		return NULL;
+	}
+	if (flags & MAP_WRITE) {
+		vfsce->writable = true;
 	}
 	void* buffer = anonymousMemoryMap(size);
 	if (buffer) {
@@ -128,11 +134,13 @@ static void* _vfsceMap(struct VFile* vf, size_t size, int flags) {
 
 static void _vfsceUnmap(struct VFile* vf, void* memory, size_t size) {
 	struct VFileSce* vfsce = (struct VFileSce*) vf;
-	SceOff cur = sceIoLseek(vfsce->fd, 0, SEEK_CUR);
-	sceIoLseek(vfsce->fd, 0, SEEK_SET);
-	sceIoWrite(vfsce->fd, memory, size);
-	sceIoLseek(vfsce->fd, cur, SEEK_SET);
-	sceIoSyncByFd(vfsce->fd, 0);
+	if (vfsce->writable) {
+		SceOff cur = sceIoLseek(vfsce->fd, 0, SEEK_CUR);
+		sceIoLseek(vfsce->fd, 0, SEEK_SET);
+		sceIoWrite(vfsce->fd, memory, size);
+		sceIoLseek(vfsce->fd, cur, SEEK_SET);
+		sceIoSyncByFd(vfsce->fd, 0);
+	}
 	mappedMemoryFree(memory, size);
 }
 
@@ -172,6 +180,16 @@ struct VDir* VDirOpen(const char* path) {
 	}
 
 	struct VDirSce* vd = malloc(sizeof(struct VDirSce));
+	if (!vd) {
+		sceIoDclose(dir);
+		return 0;
+	}
+	vd->path = strdup(path);
+	if (!vd->path) {
+		sceIoDclose(dir);
+		free(vd);
+		return 0;
+	}
 	vd->fd = dir;
 	vd->d.close = _vdsceClose;
 	vd->d.rewind = _vdsceRewind;
@@ -179,7 +197,6 @@ struct VDir* VDirOpen(const char* path) {
 	vd->d.openFile = _vdsceOpenFile;
 	vd->d.openDir = _vdsceOpenDir;
 	vd->d.deleteFile = _vdsceDeleteFile;
-	vd->path = strdup(path);
 
 	vd->de.d.name = _vdesceName;
 	vd->de.d.type = _vdesceType;
@@ -189,12 +206,13 @@ struct VDir* VDirOpen(const char* path) {
 
 bool _vdsceClose(struct VDir* vd) {
 	struct VDirSce* vdsce = (struct VDirSce*) vd;
-	if (sceIoDclose(vdsce->fd) < 0) {
-		return false;
+	bool success = true;
+	if (vdsce->fd >= 0) {
+		success = sceIoDclose(vdsce->fd) >= 0;
 	}
 	free(vdsce->path);
 	free(vdsce);
-	return true;
+	return success;
 }
 
 void _vdsceRewind(struct VDir* vd) {
@@ -324,7 +342,7 @@ static void _vdlsceRewind(struct VDir* vd) {
 
 static struct VDirEntry* _vdlsceListNext(struct VDir* vd) {
 	struct VDirSceDevList* vdl = (struct VDirSceDevList*) vd;
-	while (vdl->vde.index < 0 || _devs[vdl->vde.index]) {
+	while (_devs[vdl->vde.index + 1]) {
 		++vdl->vde.index;
 		vdl->vde.name = _devs[vdl->vde.index];
 		SceUID dir = sceIoDopen(vdl->vde.name);

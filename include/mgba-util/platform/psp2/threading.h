@@ -44,7 +44,7 @@ static inline int ConditionInit(Condition* cond) {
 	if (res < 0) {
 		return res;
 	}
-	cond->semaphore = sceKernelCreateSema("SceCondSema", 0, 0, 1, 0);
+	cond->semaphore = sceKernelCreateSema("SceCondSema", 0, 0, 0x7FFFFFFF, 0);
 	if (cond->semaphore < 0) {
 		MutexDeinit(&cond->mutex);
 		res = cond->semaphore;
@@ -84,11 +84,19 @@ static inline int ConditionWaitTimed(Condition* cond, Mutex* mutex, int32_t time
 	MutexUnlock(&cond->mutex);
 	SceUInt timeout = 0;
 	if (timeoutMs > 0) {
-		timeout = timeoutMs;
+		// sceKernelWaitSema takes its timeout in microseconds
+		timeout = (SceUInt) timeoutMs * 1000;
 	}
 	ret = sceKernelWaitSema(cond->semaphore, 1, &timeout);
 	if (ret < 0) {
-		printf("Premature wakeup: %08X", ret);
+		MutexLock(&cond->mutex);
+		if (sceKernelPollSema(cond->semaphore, 1) >= 0) {
+			// A wake raced the timeout and already removed us from the waiting count
+			ret = 0;
+		} else {
+			--cond->waiting;
+		}
+		MutexUnlock(&cond->mutex);
 	}
 	MutexLock(mutex);
 	return ret;
