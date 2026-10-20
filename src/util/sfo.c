@@ -200,8 +200,17 @@ bool SfoWrite(struct Table* sfo, struct VFile* vf) {
 
 			memset(&data[dataOffset], 0, ALIGN4(sortedEntries[i].size));
 			if (sortedEntries[i].data.str) {
-				STORE_32LE(strlen(sortedEntries[i].data.str) + 1, 0, &entries[i].valsize);
-				strncpy(&data[dataOffset], sortedEntries[i].data.str, sortedEntries[i].size);
+				const char* str = sortedEntries[i].data.str;
+				size_t len = strlen(str);
+				if (len >= sortedEntries[i].size) {
+					// Leave room for the terminator, without cutting a UTF-8 sequence in half
+					len = sortedEntries[i].size - 1;
+					while (len > 0 && (((const uint8_t*) str)[len] & 0xC0) == 0x80) {
+						--len;
+					}
+				}
+				memcpy(&data[dataOffset], str, len);
+				STORE_32LE(len + 1, 0, &entries[i].valsize);
 			} else {
 				STORE_32LE(sortedEntries[i].size, 0, &entries[i].valsize);
 			}
