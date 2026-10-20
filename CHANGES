@@ -155,6 +155,7 @@ Misc:
  - Scripting: Add `callbacks:oneshot` for single-call callbacks
  - SDL: Differentiate controllers based on serial number (fixes mgba.io/i/880)
  - VFS: Fix loading 7-Zip files with Unicode filenames on Windows (fixes mbga.io/i/3823)
+ - Vita: Skip rendering unseen frames while fast-forwarding
 
 0.10.5: (2025-03-08)
 Other fixes:

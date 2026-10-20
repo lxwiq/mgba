@@ -345,6 +345,22 @@ uint16_t mPSP2PollInput(struct mGUIRunner* runner) {
 	return activeKeys;
 }
 
+static bool _prepareFrameskip(int* frameskipCounter) {
+	static int lastVcount = 0;
+	if (!frameLimiter) {
+		// Fast-forwarded frames come faster than the screen refreshes, so most would never be
+		// seen: only render the first frame of each refresh and skip the others like frameskip
+		int vcount = sceDisplayGetVcount();
+		if (vcount == lastVcount) {
+			*frameskipCounter = 1;
+		} else {
+			*frameskipCounter = 0;
+			lastVcount = vcount;
+		}
+	}
+	return *frameskipCounter <= 0;
+}
+
 void mPSP2SetFrameLimiter(struct mGUIRunner* runner, bool limit) {
 	if (!frameLimiter && limit && audioContext.running) {
 		// Flush the audio backed up while fast-forwarding instead of waiting for it to play
@@ -666,12 +682,12 @@ void mPSP2Swap(struct mGUIRunner* runner) {
 	switch (runner->core->platform(runner->core)) {
 #ifdef M_CORE_GBA
 	case mPLATFORM_GBA:
-		frameAvailable = ((struct GBA*) runner->core->board)->video.frameskipCounter <= 0;
+		frameAvailable = _prepareFrameskip(&((struct GBA*) runner->core->board)->video.frameskipCounter);
 		break;
 #endif
 #ifdef M_CORE_GB
 	case mPLATFORM_GB:
-		frameAvailable = ((struct GB*) runner->core->board)->video.frameskipCounter <= 0;
+		frameAvailable = _prepareFrameskip(&((struct GB*) runner->core->board)->video.frameskipCounter);
 		break;
 #endif
 	default:
