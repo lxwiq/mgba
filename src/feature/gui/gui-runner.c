@@ -805,7 +805,10 @@ bool mGUIGetRom(struct mGUIRunner* runner, char* out, size_t outLength) {
 		return false;
 	}
 	size_t len = strlen(out);
-	ssize_t size = read(fd, out + len, outLength - len);
+	ssize_t size = read(fd, out + len, outLength - len - 1);
+	if (size >= 0) {
+		out[len + size] = '\0';
+	}
 	if (size > 0 && out[len + size - 1] == '\n') {
 		out[len + size - 1] = '\0';
 	}
