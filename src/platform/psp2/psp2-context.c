@@ -558,8 +558,8 @@ void _drawTex(vita2d_texture* t, unsigned width, unsigned height, bool faded, bo
 			h = height * h;
 		} else {
 			scalex = w;
-			w = width * w;
 			h = height * w;
+			w = width * w;
 		}
 		scaley = scalex;
 		break;
@@ -577,8 +577,8 @@ void _drawTex(vita2d_texture* t, unsigned width, unsigned height, bool faded, bo
 			w = aspectw * h;
 			h = aspecth * h;
 		} else {
-			w = aspectw * w;
 			h = aspecth * w;
+			w = aspectw * w;
 		}
 		scalex = w / (float) width;
 		scaley = scalex;
