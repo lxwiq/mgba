@@ -94,6 +94,7 @@ Other fixes:
  - Vita: Fix audio crackling when fast-forwarding
  - Vita: Fix brief hang when fast-forward ends
  - Vita: Fix audio gaps caused by buffer underruns
+ - Vita: Fix leaks when loading multiple games
 Misc:
  - 3DS: Change title ID to avoid conflict with commercial title (fixes mgba.io/i/3023)
  - Core: Handle relative paths for saves, screenshots, etc consistently (fixes mgba.io/i/2826)

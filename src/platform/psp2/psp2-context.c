@@ -109,6 +109,7 @@ static struct mPSP2AudioContext {
 	Mutex mutex;
 	Condition cond;
 	bool running;
+	bool threadStarted;
 } audioContext;
 
 void mPSP2MapKey(struct mInputMap* map, int pspKey, int key) {
@@ -404,6 +405,15 @@ void mPSP2Setup(struct mGUIRunner* runner) {
 
 	unsigned width, height;
 	runner->core->baseVideoSize(runner->core, &width, &height);
+	if (tex[0]) {
+		// Setup runs for every game but teardown only on exit: free what the last game used
+		vita2d_wait_rendering_done();
+		vita2d_free_texture(tex[0]);
+		vita2d_free_texture(tex[1]);
+		vita2d_free_texture(screenshot);
+		mAudioResamplerDeinit(&audioContext.resampler);
+		mAudioBufferDeinit(&audioContext.buffer);
+	}
 	tex[0] = vita2d_create_empty_texture_format(256, toPow2(height), SCE_GXM_TEXTURE_FORMAT_X8U8U8U8_1BGR);
 	tex[1] = vita2d_create_empty_texture_format(256, toPow2(height), SCE_GXM_TEXTURE_FORMAT_X8U8U8U8_1BGR);
 	currentTex = 0;
@@ -444,7 +454,9 @@ void mPSP2Setup(struct mGUIRunner* runner) {
 	runner->core->setAVStream(runner->core, &stream);
 
 	frameLimiter = true;
-	backdrop = vita2d_load_PNG_buffer(_binary_backdrop_png_start);
+	if (!backdrop) {
+		backdrop = vita2d_load_PNG_buffer(_binary_backdrop_png_start);
+	}
 
 	unsigned mode;
 	if (mCoreConfigGetUIntValue(&runner->config, "screenMode", &mode) && mode < SM_MAX) {
@@ -503,7 +515,11 @@ void mPSP2LoadROM(struct mGUIRunner* runner) {
 	mAudioBufferClear(&audioContext.buffer);
 	audioContext.sampleRate = sampleRate / fpsRatio;
 	mAudioResamplerSetSource(&audioContext.resampler, runner->core->getAudioBuffer(runner->core), audioContext.sampleRate, true);
-	ThreadCreate(&audioThread, _audioThread, &audioContext);
+	audioContext.threadStarted = ThreadCreate(&audioThread, _audioThread, &audioContext) == 0;
+	if (!audioContext.threadStarted) {
+		mLOG(GUI_PSP2, ERROR, "Failed to start audio thread");
+		audioContext.running = false;
+	}
 }
 
 
@@ -527,7 +543,12 @@ void mPSP2UnloadROM(struct mGUIRunner* runner) {
 		break;
 	}
 	audioContext.running = false;
-	ThreadJoin(&audioThread);
+	if (audioContext.threadStarted) {
+		ThreadJoin(&audioThread);
+		audioContext.threadStarted = false;
+	}
+	ConditionDeinit(&audioContext.cond);
+	MutexDeinit(&audioContext.mutex);
 }
 
 void mPSP2Paused(struct mGUIRunner* runner) {
@@ -570,6 +591,11 @@ void mPSP2Teardown(struct mGUIRunner* runner) {
 	vita2d_free_texture(tex[0]);
 	vita2d_free_texture(tex[1]);
 	vita2d_free_texture(screenshot);
+	vita2d_free_texture(backdrop);
+	tex[0] = NULL;
+	tex[1] = NULL;
+	screenshot = NULL;
+	backdrop = NULL;
 	frameLimiter = true;
 }
 
