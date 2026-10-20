@@ -1,0 +1,85 @@
+name: Vita
+
+on:
+  push:
+    branches: ['**']
+    # Releases are published from tags named vita-*, so that pushing the
+    # upstream release tags (0.10.x, ...) to this fork doesn't publish anything
+    tags: ['vita-*']
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: vita-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Build PS Vita
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          # version.cmake uses the commit count for the version string
+          fetch-depth: 0
+
+      # Same image and build command as the official mGBA builds (see README.md, "Docker building")
+      - name: Build with mgba/vita
+        run: |
+          docker run --rm \
+            --user "$(id -u):$(id -g)" \
+            -v "$GITHUB_WORKSPACE":/home/mgba/src \
+            mgba/vita:latest
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: mgba-vita
+          path: build-vita/install/usr/local/mgba.vpk
+          if-no-files-found: error
+
+  release:
+    name: Publish release
+    needs: build
+    if: startsWith(github.ref, 'refs/tags/vita-')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          name: mgba-vita
+
+      # QR code with the direct download link, so the VPK can be fetched
+      # on the console with VitaShell's QR code scanner
+      - name: Generate QR code
+        env:
+          TAG: ${{ github.ref_name }}
+        run: |
+          sudo apt-get update -q
+          sudo apt-get install -y -q qrencode
+          base="https://github.com/$GITHUB_REPOSITORY/releases/download/$TAG"
+          qrencode -s 8 -m 2 -o mgba-vpk-qrcode.png "$base/mgba.vpk"
+          {
+            echo "## Install on PS Vita"
+            echo
+            echo "Scan this QR code with VitaShell to download \`mgba.vpk\`, then install it from VitaShell's file browser."
+            echo
+            echo "![QR code to download mgba.vpk]($base/mgba-vpk-qrcode.png)"
+            echo
+            echo "Direct link: $base/mgba.vpk"
+            echo
+          } > notes.md
+
+      - name: Create GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          gh release create "$TAG" mgba.vpk mgba-vpk-qrcode.png \
+            --repo "$GITHUB_REPOSITORY" \
+            --title "mGBA for PS Vita ($TAG)" \
+            --notes-file notes.md \
+            --generate-notes
