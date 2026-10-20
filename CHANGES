@@ -165,6 +165,7 @@ Misc:
  - Vita: Skip rendering unseen frames while fast-forwarding
  - Vita: Raise audio thread priority
  - Vita: Don't use CMake packages from the host when building
+ - Vita: Fix linking with recent libzip packages
 
 0.10.5: (2025-03-08)
 Other fixes:

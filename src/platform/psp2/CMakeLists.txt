@@ -30,7 +30,10 @@ set(OS_LIB -lvita2d -l${M_LIBRARY}
     -lScePower_stub
     -lSceRtc_stub
     -lSceSysmodule_stub
-    -lSceTouch_stub)
+    -lSceTouch_stub
+    # Static dependencies (e.g. libzip's zstd and libcrypto) need pthread. The vitasdk
+    # driver links it with libc and libgcc at the end of the command line, after them
+    -pthread)
 set(OS_LIB ${OS_LIB} PARENT_SCOPE)
 set(OBJCOPY_CMD ${OBJCOPY} -I binary -O elf32-littlearm -B arm)
 
