@@ -50,6 +50,26 @@ void _itemPrev(struct GUIMenuItem* item, bool wrap) {
 	}
 }
 
+static bool _itemHasPrev(const struct GUIMenuItem* item) {
+	unsigned i;
+	for (i = 0; i < item->state && i < item->nStates; ++i) {
+		if (item->validStates[i]) {
+			return true;
+		}
+	}
+	return false;
+}
+
+static bool _itemHasNext(const struct GUIMenuItem* item) {
+	unsigned i;
+	for (i = item->state + 1; i < item->nStates; ++i) {
+		if (item->validStates[i]) {
+			return true;
+		}
+	}
+	return false;
+}
+
 static unsigned _footerHeight(const struct GUIParams* params) {
 	// Button hints are only shown if the port can name the buttons
 	if (!params->inputLabel) {
@@ -308,7 +328,19 @@ static void GUIMenuDraw(struct GUIParams* params, const struct GUIMenu* menu, co
 		}
 		GUIFontPrint(params->font, item->readonly ? lineHeight * 3 / 2 : lineHeight, y, GUI_ALIGN_LEFT, color, item->title);
 		if (item->validStates && item->validStates[item->state]) {
-			GUIFontPrintf(params->font, params->width - right - 8, y, GUI_ALIGN_RIGHT, color, "%s ", item->validStates[item->state]);
+			const char* value = item->validStates[item->state];
+			int x = params->width - right - 8;
+			if (item->readonly) {
+				GUIFontPrintf(params->font, x, y, GUI_ALIGN_RIGHT, color, "%s ", value);
+			} else {
+				// Arrows show that left and right change the value, and are dimmed when it can't go further
+				int dimmed = (color & 0xFFFFFF) | 0x40000000;
+				GUIFontPrint(params->font, x, y, GUI_ALIGN_RIGHT, _itemHasNext(item) ? color : dimmed, "> ");
+				x -= GUIFontSpanWidth(params->font, "> ");
+				GUIFontPrintf(params->font, x, y, GUI_ALIGN_RIGHT, color, "%s ", value);
+				x -= GUIFontSpanWidth(params->font, value) + GUIFontGlyphWidth(params->font, ' ');
+				GUIFontPrint(params->font, x, y, GUI_ALIGN_RIGHT, _itemHasPrev(item) ? color : dimmed, "< ");
+			}
 		}
 		y += lineHeight;
 		if (y + lineHeight > height) {

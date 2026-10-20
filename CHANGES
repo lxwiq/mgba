@@ -171,6 +171,7 @@ Misc:
  - mGUI: Group settings into categories
  - Vita: Highlight the selected menu item
  - Vita: Show button hints in menus
+ - mGUI: Show arrows on adjustable menu values
 
 0.10.5: (2025-03-08)
 Other fixes:
