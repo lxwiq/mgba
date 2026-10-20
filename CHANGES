@@ -100,6 +100,7 @@ Other fixes:
  - Vita: Fix RTC offset calculation on time conversion failure
  - Vita: Don't report failed screenshots as saved
  - mGUI: Fix potentially unterminated forwarder ROM path
+ - mGUI: Fix fast-forward, mute and screen mode toggles repeating while held
 Misc:
  - 3DS: Change title ID to avoid conflict with commercial title (fixes mgba.io/i/3023)
  - Core: Handle relative paths for saves, screenshots, etc consistently (fixes mgba.io/i/2826)
