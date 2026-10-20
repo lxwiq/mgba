@@ -270,15 +270,18 @@ static void _requestImage(struct mImageSource* source, const void** buffer, size
 
 static void _postAudioBuffer(struct mAVStream* stream, struct mAudioBuffer* buf) {
 	UNUSED(stream);
+	UNUSED(buf);
 	MutexLock(&audioContext.mutex);
 	mAudioResamplerProcess(&audioContext.resampler);
 	while (mAudioBufferAvailable(&audioContext.buffer) >= PSP2_SAMPLES) {
 		struct mPSP2AudioBuffer* buffer = &audioContext.outputBuffers[audioContext.nextAudioBuffer];
-		while (buffer->full) {
-			if (!frameLimiter || !audioContext.running) {
-				break;
-			}
+		while (buffer->full && frameLimiter && audioContext.running) {
 			ConditionWait(&audioContext.cond, &audioContext.mutex);
+		}
+		if (buffer->full) {
+			// Fast-forwarding: drop what doesn't fit instead of overwriting queued or playing audio
+			mAudioBufferClear(&audioContext.buffer);
+			break;
 		}
 		mAudioBufferRead(&audioContext.buffer, buffer->samples, PSP2_SAMPLES);
 		buffer->full = true;
