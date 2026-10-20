@@ -648,16 +648,19 @@ bool mPSP2SystemPoll(struct mGUIRunner* runner) {
 }
 
 int mPSP2ReadTouchLR(const struct mInputMap* map) {
-	SceTouchData touch[4];
+	SceTouchData touch;
 	int activeKeys = 0;
-	int touches = sceTouchPeek(SCE_TOUCH_PORT_BACK, touch, 4);
-	int i;
-	for (i = 0; i < touches; ++i) {
-		if (touch[i].reportNum < 1) {
-			continue;
-		}
-		bool left = touch[i].report[0].x < (panelInfo[SCE_TOUCH_PORT_BACK].maxAaX - panelInfo[SCE_TOUCH_PORT_BACK].minAaX) / 2;
-		bool top = touch[i].report[0].y < (panelInfo[SCE_TOUCH_PORT_BACK].maxAaY - panelInfo[SCE_TOUCH_PORT_BACK].minAaY) / 2;
+	if (sceTouchPeek(SCE_TOUCH_PORT_BACK, &touch, 1) < 1) {
+		return 0;
+	}
+	unsigned reports = touch.reportNum;
+	if (reports > SCE_TOUCH_MAX_REPORT) {
+		reports = SCE_TOUCH_MAX_REPORT;
+	}
+	unsigned i;
+	for (i = 0; i < reports; ++i) {
+		bool left = touch.report[i].x < (panelInfo[SCE_TOUCH_PORT_BACK].maxAaX - panelInfo[SCE_TOUCH_PORT_BACK].minAaX) / 2;
+		bool top = touch.report[i].y < (panelInfo[SCE_TOUCH_PORT_BACK].maxAaY - panelInfo[SCE_TOUCH_PORT_BACK].minAaY) / 2;
 		int button;
 		if (left) {
 			if (top) {
