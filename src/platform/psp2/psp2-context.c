@@ -79,19 +79,19 @@ static struct mSceImageSource {
 static struct mAVStream stream;
 
 bool frameLimiter = true;
+// Multiple of the normal speed run at while the frame limiter is enabled, above 1 when
+// fast-forwarding at a fixed speed. Emulation is then paced by the audio instead of the screen.
+float speedRatio = 1;
 
 // Cleared by mPSP2Swap for fast-forwarded frames that won't be shown, so that nothing at all
 // gets drawn for them, and set again once such a frame is over (see mPSP2SetFrameVisible)
 static bool frameVisible = true;
 
-// Number of screen refreshes between the frames that are rendered and shown when fast-forwarding
-#define PSP2_FAST_FORWARD_REFRESHES 2
-
-// Multiple of the normal speed run at while the frame limiter is enabled, above 1 when
-// fast-forwarding at a fixed speed
-static float speedRatio = 1;
-// Part of a refresh taken up by the frames run since the last one shown at such a speed
-static float speedProgress = 0;
+// Number of screen refreshes between the frames that are rendered and shown when fast-forwarding,
+// at the fastest speed and at a fixed one. Showing a frame takes a good part of a refresh, so the
+// fewer are shown, the more time is left to emulate the others.
+#define PSP2_FAST_FORWARD_REFRESHES 4
+#define PSP2_FIXED_SPEED_REFRESHES 2
 
 extern const uint8_t _binary_backdrop_png_start[];
 static vita2d_texture* backdrop = 0;
@@ -112,9 +112,6 @@ static vita2d_texture* backdrop = 0;
 // to rebuild the reserve within seconds once emulation catches up after falling behind
 #define PSP2_AUDIO_MAX_RATE_SKEW 0.005
 #define PSP2_AUDIO_MAX_RATE_STRETCH 0.02
-// Weight of each new measurement of the queue level when fast-forwarding at a fixed speed, see
-// _postAudioBuffer: the level is averaged over roughly the last 20 audio chunks
-#define PSP2_AUDIO_LEVEL_SMOOTHING 0.05
 
 struct mPSP2AudioBuffer {
 	int16_t samples[PSP2_SAMPLES * 2] __attribute__((__aligned__(64)));
@@ -129,7 +126,6 @@ static struct mPSP2AudioContext {
 	// Number of buffers to wait for before playing them, 0 while playing
 	int prefill;
 	double sampleRate;
-	double smoothedLevel;
 	struct mAudioBuffer buffer;
 	struct mAudioResampler resampler;
 	Mutex mutex;
@@ -321,7 +317,9 @@ static void _postAudioBuffer(struct mAVStream* stream, struct mAudioBuffer* buf)
 	mAudioResamplerProcess(&audioContext.resampler);
 	while (mAudioBufferAvailable(&audioContext.buffer) >= PSP2_SAMPLES) {
 		struct mPSP2AudioBuffer* buffer = &audioContext.outputBuffers[audioContext.nextAudioBuffer];
-		while (buffer->full && frameLimiter && audioContext.running) {
+		// At a fixed fast-forward speed, audio is sped up by as much, and emulation is paced by
+		// waiting for the reserve to play instead of the screen to refresh
+		while ((buffer->full || (speedRatio > 1 && audioContext.queuedBuffers >= PSP2_AUDIO_TARGET_BUFFERS)) && frameLimiter && audioContext.running) {
 			ConditionWait(&audioContext.cond, &audioContext.mutex);
 		}
 		if (buffer->full) {
@@ -339,20 +337,10 @@ static void _postAudioBuffer(struct mAVStream* stream, struct mAudioBuffer* buf)
 	// or fills up, and drains faster whenever emulation falls behind. Nudge the resampling rate
 	// to keep it on target.
 	double level = (double) (audioContext.queuedBuffers - PSP2_AUDIO_TARGET_BUFFERS) / PSP2_AUDIO_TARGET_BUFFERS;
-	double maxStretch = PSP2_AUDIO_MAX_RATE_STRETCH;
-	if (speedRatio > 1) {
-		// Audio is sped up along with emulation, but emulation can fall behind a fixed speed for a
-		// while, e.g. in busy scenes: rather than cut out, let the audio slow down as far as the
-		// normal speed. Such a strong correction would make the pitch wobble with the level, which
-		// jumps by a few buffers whenever several frames are run in a row, so it's smoothed out.
-		audioContext.smoothedLevel += (level - audioContext.smoothedLevel) * PSP2_AUDIO_LEVEL_SMOOTHING;
-		level = audioContext.smoothedLevel;
-		maxStretch += 1.0 - 1.0 / speedRatio;
-	}
 	double skew;
 	if (level < 0) {
 		// Never below -1, as the queue can't be less than empty
-		skew = level * maxStretch;
+		skew = level * PSP2_AUDIO_MAX_RATE_STRETCH;
 	} else {
 		skew = level * PSP2_AUDIO_MAX_RATE_SKEW;
 		if (skew > PSP2_AUDIO_MAX_RATE_SKEW) {
@@ -394,28 +382,18 @@ uint16_t mPSP2PollInput(struct mGUIRunner* runner) {
 
 static bool _prepareFrameskip(int* frameskipCounter) {
 	static int lastVcount = 0;
-	if (!frameLimiter) {
+	if (!frameLimiter || speedRatio > 1) {
 		// Fast-forwarded frames come faster than the screen refreshes, so most would never be
 		// seen. Rendering and showing one takes most of a refresh, which left little time to
 		// emulate any other frame: only render one every few refreshes and skip the others
 		// like frameskip, along with everything else needed to show them
+		int refreshes = frameLimiter ? PSP2_FIXED_SPEED_REFRESHES : PSP2_FAST_FORWARD_REFRESHES;
 		int vcount = sceDisplayGetVcount();
-		if (vcount - lastVcount < PSP2_FAST_FORWARD_REFRESHES) {
+		if (vcount - lastVcount < refreshes) {
 			*frameskipCounter = 1;
 		} else {
 			*frameskipCounter = 0;
 			lastVcount = vcount;
-		}
-	} else if (speedRatio > 1) {
-		// At a fixed fast-forward speed, each frame takes up only part of a refresh: show one once a
-		// whole refresh is taken up and skip the others like frameskip. Waiting for the screen to
-		// show them is then what paces emulation at that speed.
-		speedProgress += 1 / speedRatio;
-		if (speedProgress < 1) {
-			*frameskipCounter = 1;
-		} else {
-			*frameskipCounter = 0;
-			speedProgress -= 1;
 		}
 	}
 	return *frameskipCounter <= 0;
@@ -444,14 +422,7 @@ void mPSP2SetSpeedRatio(struct mGUIRunner* runner, float ratio) {
 	if (!(ratio > 1)) {
 		ratio = 1;
 	}
-	if (ratio == speedRatio) {
-		return;
-	}
 	speedRatio = ratio;
-	speedProgress = 0;
-	MutexLock(&audioContext.mutex);
-	audioContext.smoothedLevel = 0;
-	MutexUnlock(&audioContext.mutex);
 }
 
 void mPSP2Setup(struct mGUIRunner* runner) {

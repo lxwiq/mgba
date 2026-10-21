@@ -322,7 +322,7 @@ void mGUIShowConfig(struct mGUIRunner* runner, struct GUIMenuItem* extra, size_t
 			.title = "Fast forward speed",
 			.data = GUI_V_S("fastForwardRatio"),
 			.submenu = 0,
-			.state = 1,
+			.state = 0,
 			.validStates = (const char*[]) {
 				"1.25x", "1.5x", "2x", "3x", "4x"
 			},

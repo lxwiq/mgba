@@ -241,7 +241,7 @@ void mGUIInit(struct mGUIRunner* runner, const char* port) {
 	mCoreConfigSetDefaultIntValue(&runner->config, "autosave", true);
 #endif
 	mCoreConfigSetDefaultIntValue(&runner->config, "showOSD", true);
-	mCoreConfigSetDefaultFloatValue(&runner->config, "fastForwardRatio", 1.5f);
+	mCoreConfigSetDefaultFloatValue(&runner->config, "fastForwardRatio", 1.25f);
 	mCoreConfigLoad(&runner->config);
 	mCoreConfigGetIntValue(&runner->config, "logLevel", &logger.logLevel);
 
@@ -509,7 +509,7 @@ void mGUIRun(struct mGUIRunner* runner, const char* path) {
 	int fastForwardMute = false;
 	mCoreConfigGetIntValue(&runner->config, "fastForwardMute", &fastForwardMute);
 
-	float fastForwardRatio = 1.5f;
+	float fastForwardRatio = 1.25f;
 	mCoreConfigGetFloatValue(&runner->config, "fastForwardRatio", &fastForwardRatio);
 
 	bool running = true;
