@@ -280,6 +280,7 @@ int main() {
 		.unpaused = mPSP2Unpaused,
 		.incrementScreenMode = mPSP2IncrementScreenMode,
 		.setFrameLimiter = mPSP2SetFrameLimiter,
+		.setSpeedRatio = mPSP2SetSpeedRatio,
 		.pollGameInput = mPSP2PollInput,
 		.running = mPSP2SystemPoll
 	};
