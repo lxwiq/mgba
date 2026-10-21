@@ -27,6 +27,7 @@ void mPSP2Draw(struct mGUIRunner* runner, bool faded);
 void mPSP2DrawScreenshot(struct mGUIRunner* runner, const mColor* pixels, unsigned width, unsigned height, bool faded);
 void mPSP2IncrementScreenMode(struct mGUIRunner* runner);
 void mPSP2SetFrameLimiter(struct mGUIRunner* runner, bool limit);
+void mPSP2SetSpeedRatio(struct mGUIRunner* runner, float ratio);
 uint16_t mPSP2PollInput(struct mGUIRunner* runner);
 bool mPSP2SystemPoll(struct mGUIRunner* runner);
 

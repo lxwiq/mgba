@@ -317,6 +317,25 @@ void mGUIShowConfig(struct mGUIRunner* runner, struct GUIMenuItem* extra, size_t
 			.nStates = i
 		};
 	}
+	if (runner->setSpeedRatio) {
+		*GUIMenuItemListAppend(items) = (struct GUIMenuItem) {
+			.title = "Fast forward speed",
+			.data = GUI_V_S("fastForwardRatio"),
+			.submenu = 0,
+			.state = 1,
+			.validStates = (const char*[]) {
+				"1.25x", "1.5x", "2x", "3x", "4x"
+			},
+			.stateMappings = (const struct GUIVariant[]) {
+				GUI_V_F(1.25f),
+				GUI_V_F(1.5f),
+				GUI_V_F(2.0f),
+				GUI_V_F(3.0f),
+				GUI_V_F(4.0f),
+			},
+			.nStates = 5
+		};
+	}
 
 	items = &categories[CATEGORY_BIOS].items;
 	*GUIMenuItemListAppend(items) = (struct GUIMenuItem) {
