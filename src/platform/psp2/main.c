@@ -54,9 +54,11 @@ static void _drawStart(void) {
 	}
 	static int vcount = 0;
 	extern bool frameLimiter;
+	extern float speedRatio;
 	int oldVCount = vcount;
 	vcount = sceDisplayGetVcount();
-	vita2d_set_vblank_wait(frameLimiter && oldVCount + 1 >= vcount);
+	// Fast-forwarded frames aren't paced by the screen, even at a fixed speed
+	vita2d_set_vblank_wait(frameLimiter && speedRatio <= 1 && oldVCount + 1 >= vcount);
 	vita2d_start_drawing();
 	vita2d_clear_screen();
 }
