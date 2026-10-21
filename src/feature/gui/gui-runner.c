@@ -53,6 +53,12 @@ enum {
 	SCREENSHOT_INVALID = 0x20000,
 };
 
+enum {
+	FAST_FORWARD_OFF,
+	FAST_FORWARD_FIXED,
+	FAST_FORWARD_MAX,
+};
+
 static const struct mInputPlatformInfo _mGUIKeyInfo = {
 	.platformName = "gui",
 	.keyId = (const char*[GUI_INPUT_MAX]) {
@@ -235,6 +241,7 @@ void mGUIInit(struct mGUIRunner* runner, const char* port) {
 	mCoreConfigSetDefaultIntValue(&runner->config, "autosave", true);
 #endif
 	mCoreConfigSetDefaultIntValue(&runner->config, "showOSD", true);
+	mCoreConfigSetDefaultFloatValue(&runner->config, "fastForwardRatio", 1.5f);
 	mCoreConfigLoad(&runner->config);
 	mCoreConfigGetIntValue(&runner->config, "logLevel", &logger.logLevel);
 
@@ -502,6 +509,9 @@ void mGUIRun(struct mGUIRunner* runner, const char* path) {
 	int fastForwardMute = false;
 	mCoreConfigGetIntValue(&runner->config, "fastForwardMute", &fastForwardMute);
 
+	float fastForwardRatio = 1.5f;
+	mCoreConfigGetFloatValue(&runner->config, "fastForwardRatio", &fastForwardRatio);
+
 	bool running = true;
 
 #ifndef DISABLE_THREADING
@@ -515,7 +525,7 @@ void mGUIRun(struct mGUIRunner* runner, const char* path) {
 	}
 	mLOG(GUI_RUNNER, INFO, "Game starting");
 	runner->fps = 0;
-	bool fastForward = false;
+	int fastForward = FAST_FORWARD_OFF;
 	while (running) {
 		mCircleBufferClear(&runner->fpsBuffer);
 		runner->totalDelta = 0;
@@ -565,9 +575,23 @@ void mGUIRun(struct mGUIRunner* runner, const char* path) {
 				runner->core->reloadConfigOption(runner->core, "mute", &runner->config);
 			}
 			if (pressedKeys & (1 << mGUI_INPUT_FAST_FORWARD_TOGGLE)) {
-				fastForward = !fastForward;
+				// If the fixed speed is supported, it comes before the fastest one
+				switch (fastForward) {
+				case FAST_FORWARD_OFF:
+					fastForward = runner->setSpeedRatio ? FAST_FORWARD_FIXED : FAST_FORWARD_MAX;
+					break;
+				case FAST_FORWARD_FIXED:
+					fastForward = FAST_FORWARD_MAX;
+					break;
+				default:
+					fastForward = FAST_FORWARD_OFF;
+					break;
+				}
 			}
-			bool fastForwarding = fastForward || (heldKeys & (1 << mGUI_INPUT_FAST_FORWARD_HELD));
+			int fastForwarding = fastForward;
+			if (heldKeys & (1 << mGUI_INPUT_FAST_FORWARD_HELD)) {
+				fastForwarding = FAST_FORWARD_MAX;
+			}
 			if (runner->setFrameLimiter) {
 				if (fastForwarding) {
 					if (fastForwardMute && !mute && !muteTogglePressed) {
@@ -575,7 +599,7 @@ void mGUIRun(struct mGUIRunner* runner, const char* path) {
 						runner->core->reloadConfigOption(runner->core, "mute", NULL);
 					}
 
-					runner->setFrameLimiter(runner, false);
+					runner->setFrameLimiter(runner, fastForwarding != FAST_FORWARD_MAX);
 				} else {
 					runner->setFrameLimiter(runner, true);
 
@@ -584,6 +608,9 @@ void mGUIRun(struct mGUIRunner* runner, const char* path) {
 						runner->core->reloadConfigOption(runner->core, "mute", NULL);
 					}
 				}
+			}
+			if (runner->setSpeedRatio) {
+				runner->setSpeedRatio(runner, fastForwarding == FAST_FORWARD_FIXED ? fastForwardRatio : 1.0f);
 			}
 			uint16_t keys = runner->pollGameInput(runner);
 			if (runner->prepareForFrame) {
@@ -604,9 +631,14 @@ void mGUIRun(struct mGUIRunner* runner, const char* path) {
 					if (showOSD) {
 						unsigned origin = runner->params.width - GUIFontHeight(runner->params.font) / 2;
 						unsigned w;
-						if (fastForward || (heldKeys & (1 << mGUI_INPUT_FAST_FORWARD_HELD))) {
-							GUIFontDrawIcon(runner->params.font, origin, GUIFontHeight(runner->params.font) / 2, GUI_ALIGN_RIGHT, 0, 0x7FFFFFFF, GUI_ICON_STATUS_FAST_FORWARD);
+						if (fastForwarding) {
 							GUIFontIconMetrics(runner->params.font, GUI_ICON_STATUS_FAST_FORWARD, &w, NULL);
+							if (fastForwarding == FAST_FORWARD_MAX && runner->setSpeedRatio) {
+								// Tell the fastest speed apart from the fixed one
+								GUIFontDrawIcon(runner->params.font, origin, GUIFontHeight(runner->params.font) / 2, GUI_ALIGN_RIGHT, 0, 0x7FFFFFFF, GUI_ICON_STATUS_FAST_FORWARD);
+								origin -= w;
+							}
+							GUIFontDrawIcon(runner->params.font, origin, GUIFontHeight(runner->params.font) / 2, GUI_ALIGN_RIGHT, 0, 0x7FFFFFFF, GUI_ICON_STATUS_FAST_FORWARD);
 							origin -= w + GUIFontHeight(runner->params.font) / 2;
 						}
 						if (runner->core->opts.mute) {
@@ -660,6 +692,9 @@ void mGUIRun(struct mGUIRunner* runner, const char* path) {
 		}
 		if (runner->setFrameLimiter) {
 			runner->setFrameLimiter(runner, true);
+		}
+		if (runner->setSpeedRatio) {
+			runner->setSpeedRatio(runner, 1.0f);
 		}
 
 		GUIInvalidateKeys(&runner->params);
@@ -722,6 +757,7 @@ void mGUIRun(struct mGUIRunner* runner, const char* path) {
 		mCoreConfigGetIntValue(&runner->config, "showOSD", &showOSD);
 		mCoreConfigGetIntValue(&runner->config, "mute", &mute);
 		mCoreConfigGetIntValue(&runner->config, "fastForwardMute", &fastForwardMute);
+		mCoreConfigGetFloatValue(&runner->config, "fastForwardRatio", &fastForwardRatio);
 		runner->core->reloadConfigOption(runner->core, "threadedVideo.flushScanline", &runner->config);
 #ifdef M_CORE_GB
 		if (runner->core->platform(runner->core) == mPLATFORM_GB) {

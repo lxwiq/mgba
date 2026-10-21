@@ -92,6 +92,8 @@ struct mGUIRunner {
 	void (*unpaused)(struct mGUIRunner*);
 	void (*incrementScreenMode)(struct mGUIRunner*);
 	void (*setFrameLimiter)(struct mGUIRunner*, bool limit);
+	// Optional: makes the frame limiter run at a multiple of the normal speed, used for fast forwarding
+	void (*setSpeedRatio)(struct mGUIRunner*, float ratio);
 	uint16_t (*pollGameInput)(struct mGUIRunner*);
 	bool (*running)(struct mGUIRunner*);
 };
